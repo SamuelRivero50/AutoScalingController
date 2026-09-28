@@ -9,7 +9,7 @@ AWS Academy Learner Lab sessions last 4 hours and auto-stop EC2 instances at the
 
 ## Decision
 
-Run `terraform destroy` at the end of every work session and `terraform apply` at the start of the next one. This is documented as a mandatory operational step in the README, not an optional cleanup task.
+Run `terraform destroy` at the end of every work session and `terraform apply` at the start of the next one. This is documented as a mandatory operational step in the README, not an optional cleanup task. Before the destroy, the decision logs uploaded to S3 are synced to the operator's machine with `scripts/collect-evidence.sh`, which fails if nothing was collected (`docs/spec/infrastructure.md` §3); otherwise the destroy would delete the only copy of the evidence.
 
 ## Alternatives considered
 
@@ -18,7 +18,8 @@ Run `terraform destroy` at the end of every work session and `terraform apply` a
 
 ## Consequences
 
-- Terraform outputs (ALB DNS name, ASG name) change on every recreate; the controller's configuration must be re-pointed at the new values each session (documented in the README run instructions).
+- Terraform outputs (ALB and target-group ARNs, ASG name) change on every recreate. Terraform renders the controller's configuration file from those outputs (`templatefile`) and delivers it through user data, so no manual re-pointing is needed after a recreate (`docs/spec/infrastructure.md` §2).
+- Evidence must be collected before every destroy; the bucket uses `force_destroy = true`, so the destroy deletes the uploaded logs as well.
 - This is the single most important cost-control decision in the design, directly protecting the project's ability to complete the real-AWS deliverable within budget.
 
 ## Sources

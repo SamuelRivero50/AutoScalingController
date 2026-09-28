@@ -20,6 +20,9 @@ Build a minimal, stateless Go application (hello-world response, `/health`, and 
 
 - The application's statelessness is a load-bearing assumption for safe scale-in and for the taxonomy's Scope classification (`docs/context/taxonomy.md`).
 - CPU-vs-latency causality in the experiment stays clean because the application has no external dependencies of its own.
+- Stress is triggered by a separate operator tool (`cmd/stress`) running on the controller host, never by the controller binary, so the controller does not influence its own inputs (REQ-CONSTRAINT-5). The tool can target every instance, since stressing one instance of N barely moves the fleet average.
+- Synthetic stress does not redistribute onto instances added by scale-out, so post-scale-out CPU drops are partly an artifact of the load method; this is reported as a limitation (`docs/spec/evaluation.md` §3).
+- `/admin/stress` is unauthenticated, so it is blocked at the ALB (`403` for `/admin/*`) and reachable only from the controller host's security group.
 
 ## Sources
 

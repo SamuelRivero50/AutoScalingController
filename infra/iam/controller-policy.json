@@ -18,7 +18,6 @@
       "Effect": "Allow",
       "Action": [
         "autoscaling:SetDesiredCapacity",
-        "autoscaling:SetInstanceHealth",
         "autoscaling:TerminateInstanceInAutoScalingGroup"
       ],
       "Resource": "arn:aws:autoscaling:${AWS_REGION}:${AWS_ACCOUNT_ID}:autoScalingGroup:*:autoScalingGroupName/${ASG_NAME}",

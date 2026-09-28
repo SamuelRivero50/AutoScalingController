@@ -23,6 +23,7 @@ All metrics are computed as specified in `docs/spec/simulator.md` §5, from the 
 
 The report does not merely present passing scenarios — it explicitly states:
 - Which design assumptions could not be empirically validated within the AWS Academy Learner Lab's constraints (e.g., true multi-hour sustained load, larger-than-5-instance behavior).
+- That the real run's load is synthetic per-instance stress: an instance added by scale-out starts unstressed, so the fleet-average CPU falls because of how the stress is applied, not because real traffic redistributed (`docs/spec/app.md` §3). The simulator models redistribution; the real run only proves integration.
 - The one confirmed blind spot (SLO breach with low CPU, attributable to a bottleneck the controller cannot see).
 - Any reason codes that occurred far more or less often than expected, with a hypothesis why.
 

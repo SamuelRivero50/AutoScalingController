@@ -38,7 +38,7 @@ Rule (both profiles): a cycle only counts toward a window if it is "fresh" (no p
 | Pending timeout | 360s | 45s |
 | Deregistration delay | 60s | 10s |
 | Drain timeout | 90s | 40s |
-| Per-AWS-call timeout / retries | 10s / 3 retries, backoff 1-2-4s (cap 30s) | same |
+| Per-AWS-call attempt timeout / retries | 10s per attempt / 3 retries, backoff 1-2-4s (cap 30s); total bounded by the cycle budget | same |
 | Per-cycle time budget | 40s | 10s |
 | Circuit-breaker failure threshold | 3 consecutive | 3 |
 | Circuit-breaker cool-off | ~10 min | ~10 min |

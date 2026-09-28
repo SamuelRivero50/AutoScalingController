@@ -35,6 +35,10 @@ This is the source list used to create GitHub issues (see `docs/plan/traceabilit
 23. **Minimal test application: `/`, `/health`, `/admin/stress`** — labels: `app`, `milestone-3`
 24. **README: destroy-per-session run procedure, cost estimate step** — labels: `docs`, `milestone-3`
 25. **Guarded real-AWS integration run + evidence collection** — labels: `experiment`, `milestone-3`
+31. **Controller entrypoint: config file resolved on a profile, real adapters wiring, per-attempt AWS timeouts, drain timeout** — labels: `core`, `adapters`, `milestone-3`
+32. **Stress operator tool (`cmd/stress`): trigger `/admin/stress` on one or all instances from the controller host** — labels: `app`, `experiment`, `milestone-3`
+33. **Evidence persistence: S3 upload timer + `scripts/collect-evidence.sh` (fails if empty)** — labels: `infra`, `experiment`, `milestone-3`
+34. **Secret scanning: gitleaks pre-commit hook + GitHub Actions workflow** — labels: `security`, `milestone-3`
 
 ## Milestone 4 — Evaluation and reporting
 

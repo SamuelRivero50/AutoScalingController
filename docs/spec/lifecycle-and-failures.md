@@ -36,14 +36,14 @@ Only closed (already elapsed) metric periods are used; `metric_lag` (60s realist
 | Pending timeout (2× warmup) | 360s | 45s |
 | Target-group deregistration delay | 60s (AWS default is 300s; overridden) | 10s |
 | Drain timeout (delay + 30s) | 90s | 40s |
-| Per-AWS-call timeout | 10s, 3 retries, exponential backoff + jitter (1s, 2s, 4s; cap 30s) | same |
+| Per-AWS-call attempt timeout | 10s **per attempt**, 3 retries, exponential backoff + jitter (1s, 2s, 4s; cap 30s); the whole call is bounded by the cycle budget | same |
 | Per-cycle time budget | 40s | 10s |
 | Circuit-breaker threshold | 3 consecutive provisioning failures | 3 |
 | Circuit-breaker cool-off before one probe attempt | ~10 minutes | ~10 minutes (kept equal deliberately — see ADR-0004) |
 
 **Warmup measurement**: warmup is measured automatically from ASG scaling-activity timestamps (launch request → `InService` → ALB target `healthy`), refined by an independent 5-second-interval measurement script run once against the real environment before the formal experiment, so the realistic-profile timeout is evidence-based rather than assumed.
 
-**Per-cycle time budget rationale**: a cycle can take up to ~47 seconds in the worst case if every AWS call needs its full retry allotment; without a budget, a slow cycle could overlap with the next scheduled cycle. If the 40-second budget is exhausted, remaining unread signals become `MISSING` for that cycle, no action is executed, but the cycle is still logged (satisfying REQ-CONSTRAINT-7 — even a "gave up" cycle is explainable).
+**Per-cycle time budget rationale**: the 10s timeout applies to each attempt, not to the whole call, so a single call can take up to ~47 seconds in the worst case (4 attempts × 10s + 1+2+4s of backoff). The per-attempt timeout is enforced by the AWS adapters (HTTP client timeout plus the SDK retryer); the control loop bounds every call only by the remaining cycle budget, so retries cannot push a cycle past the budget; without a budget, a slow cycle could overlap with the next scheduled cycle. If the 40-second budget is exhausted, remaining unread signals become `MISSING` for that cycle, no action is executed, but the cycle is still logged (satisfying REQ-CONSTRAINT-7 — even a "gave up" cycle is explainable).
 
 **Idempotent actions**: every capacity-changing call sets an **absolute** desired-capacity value (never a delta) with `HonorCooldown=false` (ASG's own cooldown is not used — see ADR-0004 for why). This makes retrying a timed-out action safe: re-sending the same absolute target cannot double-apply a delta.
 

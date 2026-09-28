@@ -12,11 +12,15 @@ A deliberately minimal Go application exists only to give the controller somethi
 |---|---|---|
 | `/` | GET | Returns a static "hello world" response — proves the instance is serving traffic through the ALB |
 | `/health` | GET | Lightweight health check for the ALB target group; does not touch any shared state or the stress-test code path, so it stays responsive even while the stress endpoint is active (see `docs/spec/lifecycle-and-failures.md` §5) |
-| `/admin/stress` | POST | Accepts a duration parameter; busies that single instance's CPU internally (a tight computational loop across goroutines) for the requested duration, targeting 80-90% utilization — never external load, never 100% |
+| `/admin/stress` | POST | Accepts a duration parameter; busies that single instance's CPU internally (a duty-cycled computational loop across goroutines) for the requested duration, targeting 80-90% utilization — never external load, never 100%. At most one stress run is active per instance. Not reachable through the ALB (a listener rule returns `403` for `/admin/*`); only the controller host's security group can reach the app port directly |
 
 ## 3. Why internal stress instead of load generation
 
-AWS Academy Learner Lab accounts risk suspension if used to generate real load against the internet-facing infrastructure of an account with limited standing. The course instructor explicitly suggested triggering CPU/memory consumption **internally** via an admin endpoint as an accepted substitute for external load testing. This design follows that guidance exactly: the `/admin/stress` endpoint is called directly (e.g., via `curl` from the controller's own network, or manually during the demo), never through external traffic generation tools.
+AWS Academy Learner Lab accounts risk suspension if used to generate real load against the internet-facing infrastructure of an account with limited standing. The course instructor explicitly suggested triggering CPU/memory consumption **internally** via an admin endpoint as an accepted substitute for external load testing. This design follows that guidance exactly: the `/admin/stress` endpoint is called directly on the instances' private IPs, never through external traffic generation tools.
+
+**Stress is triggered by a separate tool, not by the controller.** `cmd/stress` is a small operator tool that runs on the controller host and calls `/admin/stress` on one or all application instances' private IPs. It is deliberately a different binary from the controller: if the controller generated its own load it would influence its own inputs, weakening the claim that no agent intervenes in the decision loop (REQ-CONSTRAINT-5). It can target every instance because stressing one instance out of N does not raise the fleet average enough (with N=2, one instance at ~85% and one idle averages ~43%, below the 70% trigger).
+
+**Experiment limitation.** Synthetic stress does not redistribute: an instance added by scale-out starts unstressed, so the fleet-average CPU drops immediately rather than because real load spread across more instances. This is inherent to internal stress (ADR-0013) and is reported in the critical analysis (`docs/spec/evaluation.md` §3).
 
 ## 4. Properties
 

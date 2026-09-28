@@ -33,7 +33,8 @@ Each scenario is also an automated test with an explicit acceptance criterion.
 
 - Hard duration cap enforced by the operator (target 45-60 minutes total, including infra apply/destroy).
 - A cost estimate is computed and displayed before running `terraform apply`.
-- `terraform destroy` runs immediately after evidence collection — this is not optional (see `docs/spec/infrastructure.md` §2).
+- Evidence is collected with `scripts/collect-evidence.sh` (S3 → local, fails if empty) and then `terraform destroy` runs immediately — neither step is optional (see `docs/spec/infrastructure.md` §3-§4).
+- Load is generated only by `cmd/stress` from the controller host against the instances' private IPs, never by the controller itself (`docs/spec/app.md` §3).
 - Explicit user confirmation is required before `terraform apply` and before any command that calls `/admin/stress` — no step in this run is automated end-to-end without a human present, which is acceptable because REQ-CONSTRAINT-5 (no human intervention) applies specifically to the *controller's decision loop* during the timed experiment, not to standing up/tearing down infrastructure.
 - Stress level capped at 80-90% CPU (never 100%) per `docs/spec/lifecycle-and-failures.md` §5.
 

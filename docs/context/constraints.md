@@ -24,7 +24,7 @@ These constraints come from two independent sources: the challenge assignment (`
 
 ## 4. Credentials
 
-- No AWS credentials, session tokens, or `.pem` files are ever committed. `.gitignore` excludes `.env`, `.aws/`, `*.pem`, and Terraform state/plan files. A secret-scanning pre-commit hook (e.g., gitleaks) is part of the repo tooling.
+- No AWS credentials, session tokens, or `.pem` files are ever committed. `.gitignore` excludes `.env`, `.aws/`, `*.pem`, and Terraform state/plan files. `gitleaks` runs as a pre-commit hook (`.pre-commit-config.yaml`) and in CI (GitHub Actions), so the repository is scanned for key material on every change.
 - Local development uses the Learner Lab's temporary session-token credentials via environment variables. The real deployment uses an EC2 instance profile — never hard-coded keys.
 
 ## 5. Time budget

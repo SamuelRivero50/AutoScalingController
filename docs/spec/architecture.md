@@ -107,4 +107,8 @@ loop every EvaluationInterval (or immediately in simulator time):
 /internal/simulator/      scenario definitions S1-S10 and runner (keeps cmd/simulator thin)
 /cmd/simulator/           closed-loop simulator entrypoint (scenarios S1-S10)
 /cmd/testapp/             minimal Go test application (hello world + /health + stress endpoint)
+/cmd/stress/              operator tool that triggers /admin/stress on the instances (never part of the controller)
+/internal/config/         controller configuration file loading, resolved on top of a profile
+/infra/                   Terraform root module
+/scripts/                 operator scripts (collect-evidence.sh)
 ```

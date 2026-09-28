@@ -34,11 +34,12 @@ infra/**/.terraform/
 infra/**/*.tfstate
 infra/**/*.tfstate.*
 infra/**/*.tfplan
-infra/**/.terraform.lock.hcl
 infra/**/crash.log
 
-# Decision logs
+# Decision logs and collected evidence
 logs/
+sim-logs/
+evidence/
 *.jsonl
 
 # Local tooling
