@@ -22,7 +22,7 @@ func TestClassifyRequestCountAndSLOEvaluability(t *testing.T) {
 	}{
 		{
 			name:    "absent RequestCount is zero traffic, not missing",
-			mutate:  func(o *Observation) {},
+			mutate:  func(_ *Observation) {},
 			rc:      QualityNotEvaluable,
 			latency: QualityNotEvaluable,
 			errRate: QualityNotEvaluable,
