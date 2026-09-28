@@ -1,0 +1,175 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Auto-Scaling Controller Decision Log Record",
+  "oneOf": [
+    { "$ref": "#/definitions/cycleRecord" },
+    { "$ref": "#/definitions/eventRecord" }
+  ],
+  "definitions": {
+    "cycleRecord": {
+      "type": "object",
+      "required": ["schema_version", "type", "run_id", "cycle_id", "mode", "profile", "ts", "config_hash", "observation", "windows", "capacity", "breaker", "decision", "reason_code", "justification", "action"],
+      "properties": {
+        "schema_version": { "type": "string" },
+        "type": { "const": "cycle" },
+        "run_id": { "type": "string" },
+        "cycle_id": { "type": "integer", "minimum": 0 },
+        "mode": { "enum": ["sim", "real"] },
+        "profile": { "enum": ["demo", "realistic"] },
+        "ts": { "type": "string", "format": "date-time" },
+        "config_hash": { "type": "string" },
+        "observation": {
+          "type": "object",
+          "required": ["signals"],
+          "properties": {
+            "signals": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["name", "value", "unit", "quality"],
+                "properties": {
+                  "name": { "type": "string" },
+                  "value": { "type": ["number", "null"] },
+                  "unit": { "type": "string" },
+                  "quality": { "enum": ["VALID", "NOT_EVALUABLE", "NO_NEW_DATA", "MISSING", "STALE", "ANOMALOUS"] },
+                  "datapoint_ts": { "type": ["string", "null"], "format": "date-time" },
+                  "period_start": { "type": ["string", "null"], "format": "date-time" },
+                  "period_end": { "type": ["string", "null"], "format": "date-time" }
+                }
+              }
+            }
+          }
+        },
+        "windows": {
+          "type": "object",
+          "required": ["scale_out", "scale_in"],
+          "properties": {
+            "scale_out": {
+              "type": "object",
+              "required": ["m", "n", "breaching"],
+              "properties": {
+                "m": { "type": "integer" },
+                "n": { "type": "integer" },
+                "breaching": { "type": "array", "items": { "type": "integer" } }
+              }
+            },
+            "scale_in": {
+              "type": "object",
+              "required": ["n", "comfortable"],
+              "properties": {
+                "n": { "type": "integer" },
+                "comfortable": { "type": "array", "items": { "type": "integer" } }
+              }
+            }
+          }
+        },
+        "capacity": {
+          "type": "object",
+          "required": ["desired", "in_service", "pending", "draining", "min", "max", "instances"],
+          "properties": {
+            "desired": { "type": "integer" },
+            "in_service": { "type": "integer" },
+            "pending": { "type": "integer" },
+            "draining": { "type": "integer" },
+            "min": { "type": "integer" },
+            "max": { "type": "integer" },
+            "instances": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["id", "az", "state"],
+                "properties": {
+                  "id": { "type": "string" },
+                  "az": { "type": "string" },
+                  "state": { "enum": ["PENDING", "IN_SERVICE", "DRAINING", "FAILED", "TERMINATED"] },
+                  "launched_at": { "type": ["string", "null"], "format": "date-time" }
+                }
+              }
+            }
+          }
+        },
+        "breaker": {
+          "type": "object",
+          "required": ["state", "consecutive_failures"],
+          "properties": {
+            "state": { "enum": ["CLOSED", "OPEN", "HALF_OPEN"] },
+            "consecutive_failures": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "decision": { "enum": ["MAINTAIN_CAPACITY", "INCREASE_CAPACITY", "REDUCE_CAPACITY"] },
+        "reason_code": {
+          "enum": [
+            "INCREASE_CPU_HIGH",
+            "INCREASE_LATENCY_SLO",
+            "INCREASE_CAPACITY_ERRORS",
+            "INCREASE_APP_ERRORS_WITH_LOAD",
+            "REDUCE_PROJECTION_OK",
+            "MAINTAIN_STABLE",
+            "MAINTAIN_WINDOW_PENDING",
+            "MAINTAIN_PENDING_CAPACITY",
+            "MAINTAIN_SCALE_IN_BLOCKED",
+            "MAINTAIN_AT_MAX",
+            "MAINTAIN_AT_MIN",
+            "MAINTAIN_BLIND",
+            "MAINTAIN_STATE_UNKNOWN",
+            "MAINTAIN_SLO_BREACH_LOW_CPU"
+          ]
+        },
+        "justification": {
+          "type": "object",
+          "required": ["conditions"],
+          "properties": {
+            "conditions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["name", "value", "threshold", "met"],
+                "properties": {
+                  "name": { "type": "string" },
+                  "value": { "type": ["number", "null"] },
+                  "threshold": { "type": ["number", "null"] },
+                  "met": { "type": "boolean" }
+                }
+              }
+            }
+          }
+        },
+        "action": {
+          "type": "object",
+          "required": ["type", "status"],
+          "properties": {
+            "type": { "enum": ["SET_DESIRED_CAPACITY", "TERMINATE_INSTANCE", "NONE"] },
+            "params": { "type": "object" },
+            "status": { "enum": ["OK", "SKIPPED", "ERROR"] },
+            "skip_reason": { "type": ["string", "null"] },
+            "api_request_id": { "type": ["string", "null"] },
+            "duration_ms": { "type": ["integer", "null"] },
+            "error": { "type": ["string", "null"] }
+          }
+        }
+      }
+    },
+    "eventRecord": {
+      "type": "object",
+      "required": ["schema_version", "type", "run_id", "ts", "event_type", "details"],
+      "properties": {
+        "schema_version": { "type": "string" },
+        "type": { "const": "event" },
+        "run_id": { "type": "string" },
+        "ts": { "type": "string", "format": "date-time" },
+        "event_type": {
+          "enum": [
+            "INSTANCE_STATE_CHANGE",
+            "BREAKER_STATE_CHANGE",
+            "BLIND_ALERT",
+            "FETCH_FAILURE",
+            "STATE_REBUILT",
+            "CONTROLLER_STARTED",
+            "CONTROLLER_STOPPED"
+          ]
+        },
+        "details": { "type": "object" }
+      }
+    }
+  }
+}
