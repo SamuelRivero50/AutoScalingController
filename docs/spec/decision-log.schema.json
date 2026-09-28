@@ -112,6 +112,7 @@
             "MAINTAIN_AT_MIN",
             "MAINTAIN_BLIND",
             "MAINTAIN_STATE_UNKNOWN",
+            "MAINTAIN_NO_HEALTHY_TARGETS",
             "MAINTAIN_SLO_BREACH_LOW_CPU"
           ]
         },

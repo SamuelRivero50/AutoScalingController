@@ -18,10 +18,18 @@ scale-out step     = min(2, 5-N, max(1, ceil(N * CPU / 55) - N))
 
 scale-in step       = always -1 (never more than one at a time)
 
-0 healthy targets   = MAINTAIN_CAPACITY + alert (ASG self-heals; scaling would not help)
+0 healthy targets   = MAINTAIN_CAPACITY / MAINTAIN_NO_HEALTHY_TARGETS + alert
+                      (ASG self-heals; scaling would not help)
 ```
 
 Where `N` is the current in-service instance count.
+
+### 1.1 Edge cases and tie-breaks
+
+- **Error-triggered scale-out attribution.** Latency and errors are evaluated as one combined error rate (`docs/spec/signals.md` §1), but the reason code records which counter dominated: `INCREASE_CAPACITY_ERRORS` when `HTTPCode_ELB_5XX_Count >= HTTPCode_Target_5XX_Count` (the load balancer could not route — a capacity/availability symptom), `INCREASE_APP_ERRORS_WITH_LOAD` otherwise (the application itself answered with errors under load). When latency and errors both breach in the same cycle, `INCREASE_LATENCY_SLO` wins. The tie-break is a deterministic convention; the step size (+1) is the same either way.
+- **At a capacity bound.** When the scale-out window is satisfied at `N = max`, the decision is `MAINTAIN_CAPACITY` / `MAINTAIN_AT_MAX` (and `MAINTAIN_AT_MIN` for scale-in at `N = min`), not `INCREASE_CAPACITY` with a skipped action. `justification.conditions[]` still records the raw evidence (`cpu_high`, `overload` and `scale_out_window` with `met: true`), so a cycle where the controller wanted more capacity but was capped remains visible in the log (REQ-PRESENT-7). `INCREASE_CAPACITY` with `action.status: SKIPPED` is reserved for an open circuit breaker.
+- **`N = 1` (the minimum).** The projection `CPU × N/(N-1)` is undefined at `N = 1` and scale-in below `min = 1` is impossible anyway (REQ-CONSTRAINT-2). The projection is therefore not computed when `N <= min`; a cycle whose raw CPU is within the comfort bound (`CPU <= 55`, SLO comfortable) reports `MAINTAIN_AT_MIN`.
+- **No healthy targets vs. unknown state.** `MAINTAIN_NO_HEALTHY_TARGETS` means capacity was read successfully and no target is healthy; `MAINTAIN_STATE_UNKNOWN` means capacity could not be read at all. If a capacity change is in flight (instances still launching), zero healthy targets is expected and the cycle reports `MAINTAIN_PENDING_CAPACITY` without an alert.
 
 ## 2. Rationale for each threshold
 

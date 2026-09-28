@@ -9,7 +9,7 @@ The controller must not jeopardize availability when metrics are missing, delaye
 
 ## Decision
 
-Classify every signal per cycle into one of six quality states (`VALID`, `NOT_EVALUABLE`, `NO_NEW_DATA`, `MISSING`, `STALE`, `ANOMALOUS`). Absence of `RequestCount` means zero traffic (not a fault); absence of 5xx counters while `RequestCount` is present means zero errors. `REDUCE_CAPACITY` requires positive, valid CPU evidence across the entire scale-in window — never inferred from absence. If CPU is unusable and latency/error are not evaluable, decide `MAINTAIN_CAPACITY` (`MAINTAIN_BLIND`); raise an alert after a configured number of consecutive blind cycles.
+Classify every signal per cycle into one of six quality states (`VALID`, `NOT_EVALUABLE`, `NO_NEW_DATA`, `MISSING`, `STALE`, `ANOMALOUS`). Absence of `RequestCount` means zero traffic (not a fault); absence of 5xx counters while `RequestCount` is present means zero errors. `REDUCE_CAPACITY` requires positive, valid CPU evidence across the entire scale-in window — never inferred from absence. If CPU is unusable, decide `MAINTAIN_CAPACITY` (`MAINTAIN_BLIND`) regardless of latency/error quality, since latency/error only confirm the CPU trigger and cannot establish overload or safe scale-in on their own; raise an alert after a configured number of consecutive blind cycles.
 
 ## Alternatives considered
 

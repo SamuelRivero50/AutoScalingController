@@ -34,7 +34,7 @@ See `docs/spec/decision-log.schema.json` for the machine-readable JSON Schema. S
 | `justification.conditions[]` | array | every evaluated condition: `{name, value, threshold, met}` |
 | `action` | object | `{type, params, status, skip_reason, api_request_id, duration_ms, error}` |
 
-**Decision and action are recorded as separate fields.** A cycle can have `decision: INCREASE_CAPACITY` with `action.status: SKIPPED` (e.g., breaker open, or already at max capacity) — this distinction is required to correctly analyze "incorrect or late decisions" (REQ-PRESENT-6) separately from action-execution failures.
+**Decision and action are recorded as separate fields.** A cycle can have `decision: INCREASE_CAPACITY` with `action.status: SKIPPED` (e.g., circuit breaker open) — this distinction is required to correctly analyze "incorrect or late decisions" (REQ-PRESENT-6) separately from action-execution failures. Being at a capacity bound is not a skipped action: it is decided as `MAINTAIN_CAPACITY` / `MAINTAIN_AT_MAX` (or `MAINTAIN_AT_MIN`), with `justification.conditions[]` still recording the overload evidence as `met: true` (see `docs/spec/decision-policy.md` §1.1).
 
 ## 3. Reason code catalog (closed vocabulary)
 
@@ -52,8 +52,11 @@ MAINTAIN_AT_MAX
 MAINTAIN_AT_MIN
 MAINTAIN_BLIND
 MAINTAIN_STATE_UNKNOWN
+MAINTAIN_NO_HEALTHY_TARGETS
 MAINTAIN_SLO_BREACH_LOW_CPU
 ```
+
+`MAINTAIN_STATE_UNKNOWN` means capacity could not be read; `MAINTAIN_NO_HEALTHY_TARGETS` means it was read and no target is healthy.
 
 No code outside this list may be emitted; adding a new one requires updating this document and the schema together (traceability, ADR-0008).
 
