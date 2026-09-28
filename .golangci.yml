@@ -1,0 +1,46 @@
+# golangci-lint v2 configuration. Source of truth for which linters run
+# (docs: https://golangci-lint.run). Run with: make lint
+version: "2"
+
+run:
+  tests: true
+
+linters:
+  default: standard # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    - bodyclose # HTTP/response bodies are closed
+    - contextcheck # context is propagated, not dropped
+    - errorlint # correct errors.Is/As and %w usage
+    - gocritic # opinionated correctness and style checks
+    - gosec # security issues (SAST)
+    - misspell # misspellings in comments and strings
+    - nilerr # do not return nil on a non-nil error
+    - noctx # no HTTP requests without a context
+    - revive # golint successor: naming, exported docs, style
+    - unconvert # remove redundant type conversions
+    - unparam # unused function parameters
+    - wastedassign # assignments never read
+  settings:
+    gosec:
+      excludes:
+        - G404 # math/rand is fine for the simulator's deterministic noise
+  exclusions:
+    generated: lax
+    presets:
+      - std-error-handling
+    rules:
+      # Test helpers legitimately ignore some errors and use weaker rules.
+      - path: _test\.go
+        linters:
+          - errcheck
+          - gosec
+          - unparam
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/SamuelRivero50/AutoScalingController
