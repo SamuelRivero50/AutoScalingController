@@ -36,6 +36,7 @@ Goal: turn decision logs into the metrics and report structure required by `docs
 
 - Analysis script: reads JSONL logs, computes SLO compliance, instance-minutes vs. theoretical minimum, over/under-provisioning, oscillation count, time-to-relief, reason-code breakdown.
 - Report sections mapped to REQ-PRESENT-1..8.
+- Live-demo load dial on the simulator (demo profile) for REQ-DELIV-5 (`docs/spec/simulator.md` §4).
 - Final consistency pass across all documentation (`docs/plan/traceability.md`, `docs/verification.md`).
 
 ## Sequencing note

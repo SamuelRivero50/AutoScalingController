@@ -42,3 +42,4 @@ This is the source list used to create GitHub issues (see `docs/plan/traceabilit
 27. **Analysis script: oscillation count, time-to-relief, reason-code breakdown** — labels: `evaluation`, `milestone-4`
 28. **Critical analysis report draft (REQ-PRESENT-1..8)** — labels: `docs`, `evaluation`, `milestone-4`
 29. **Final documentation consistency pass (traceability matrix, verification checklist)** — labels: `docs`, `milestone-4`
+30. **Live-demo load dial for the simulator (demo profile, interactive overload/comfortable control)** — labels: `simulator`, `milestone-4`

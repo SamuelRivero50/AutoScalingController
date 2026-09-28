@@ -77,6 +77,12 @@ loop every EvaluationInterval (or immediately in simulator time):
     DecisionLogger.Append(CycleRecord{input, decision, result})
 ```
 
+### 4.1 Wiring and per-cycle rules
+
+- **Dependency injection**: adapters are wired by manual constructor injection in `cmd/controller` and `cmd/simulator`; no DI framework (ADR-0017).
+- **One action per cycle**: the shell executes at most one capacity action per cycle, in this order of precedence: skip if the cycle budget is exhausted; terminate the oldest stuck-pending instance; reset desired capacity when the circuit breaker opens; otherwise execute the decision's own action (subject to the breaker). See `docs/spec/decision-log.md` §5 for how each case is logged.
+- **Circuit breaker**: its state transitions are a pure function in `internal/core` (current time passed in), so they are unit-testable and reproducible; the application layer feeds it the provisioning failures defined in `docs/spec/lifecycle-and-failures.md` §4.
+
 ## 5. Deployment topology
 
 - **Simulation mode**: runs entirely on the developer's machine (WSL), no AWS calls, `FakeClock` compresses time.
@@ -95,8 +101,10 @@ loop every EvaluationInterval (or immediately in simulator time):
 /internal/adapters/asg/
 /internal/adapters/fakeasg/
 /internal/adapters/filestate/
+/internal/adapters/memstate/   in-memory StateStore used by the simulator
 /internal/adapters/jsonllog/
-/internal/adapters/clock/
+/internal/adapters/clock/      system clock and FakeClock
+/internal/simulator/      scenario definitions S1-S10 and runner (keeps cmd/simulator thin)
 /cmd/simulator/           closed-loop simulator entrypoint (scenarios S1-S10)
 /cmd/testapp/             minimal Go test application (hello world + /health + stress endpoint)
 ```

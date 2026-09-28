@@ -163,6 +163,7 @@
             "INSTANCE_STATE_CHANGE",
             "BREAKER_STATE_CHANGE",
             "BLIND_ALERT",
+            "NO_HEALTHY_TARGETS_ALERT",
             "FETCH_FAILURE",
             "STATE_REBUILT",
             "CONTROLLER_STARTED",

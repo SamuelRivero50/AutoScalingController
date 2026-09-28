@@ -65,10 +65,27 @@ No code outside this list may be emitted; adding a new one requires updating thi
 | Field | Type | Notes |
 |---|---|---|
 | `schema_version`, `type` (`"event"`), `run_id`, `ts` | as above | |
-| `event_type` | string | `INSTANCE_STATE_CHANGE` \| `BREAKER_STATE_CHANGE` \| `BLIND_ALERT` \| `FETCH_FAILURE` \| `STATE_REBUILT` \| `CONTROLLER_STARTED` \| `CONTROLLER_STOPPED` |
+| `event_type` | string | `INSTANCE_STATE_CHANGE` \| `BREAKER_STATE_CHANGE` \| `BLIND_ALERT` \| `NO_HEALTHY_TARGETS_ALERT` \| `FETCH_FAILURE` \| `STATE_REBUILT` \| `CONTROLLER_STARTED` \| `CONTROLLER_STOPPED` |
 | `details` | object | event-specific payload |
 
-## 5. Sources
+`NO_HEALTHY_TARGETS_ALERT` is emitted on cycles decided as `MAINTAIN_NO_HEALTHY_TARGETS`; `BLIND_ALERT` once when the consecutive blind-cycle streak reaches the configured threshold.
+
+## 5. Action conventions
+
+| Situation | `action.type` | `action.status` | `action.skip_reason` |
+|---|---|---|---|
+| `MAINTAIN_CAPACITY` (any reason code, including `MAINTAIN_AT_MAX`/`MAINTAIN_AT_MIN`) | `NONE` | `OK` | null |
+| Capacity change executed | `SET_DESIRED_CAPACITY` (absolute value) | `OK` or `ERROR` | null |
+| Stuck-pending instance terminated | `TERMINATE_INSTANCE` | `OK` or `ERROR` | null |
+| Decided to act but did not execute | the intended type | `SKIPPED` | `BREAKER_OPEN`, `BREAKER_PROBE_IN_FLIGHT` or `BUDGET_EXHAUSTED` |
+
+`SKIPPED` is reserved for "decided to act but did not execute". Each cycle executes at most one action; a stuck-pending termination or a breaker capacity reset takes precedence over the decision's own action, and the decision is still recorded unchanged.
+
+## 6. Validation
+
+Every record is validated against `decision-log.schema.json` by the test suite (including every record produced by the simulator scenarios). The JSON Schema validator is a test-only dependency: it is imported only from `_test.go` files, so it never ships in the controller binary.
+
+## 7. Sources
 
 - JSON Lines specification — https://jsonlines.org/
 - Google SRE Book, *Monitoring Distributed Systems* (structured, explainable logging of automated decisions) — https://sre.google/sre-book/monitoring-distributed-systems/

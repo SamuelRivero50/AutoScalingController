@@ -33,6 +33,6 @@ Maps each challenge requirement to the ADR(s) that decided it, the spec file tha
 | REQ-DELIV-2 | ADR-0012, ADR-0013, ADR-0010 | `spec/infrastructure.md`, `spec/app.md`, `spec/iam.md` | #16-25 |
 | REQ-DELIV-3 | ADR-0011 | `spec/simulator.md` | #14, #15, #25 |
 | REQ-DELIV-4 | — | `spec/evaluation.md` | #28 |
-| REQ-DELIV-5 | — | `spec/simulator.md` §4 | #15 |
+| REQ-DELIV-5 | — | `spec/simulator.md` §4 | #15, #30 |
 | REQ-ASSESS | ADR-0007, ADR-0008, ADR-0010 | `spec/decision-log.md`, `spec/iam.md` | #3, #7, #20 |
 | REQ-PRESENT-1..8 | — | `spec/evaluation.md` | #26, #27, #28 |
