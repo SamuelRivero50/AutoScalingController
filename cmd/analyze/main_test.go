@@ -38,7 +38,7 @@ func TestRun(t *testing.T) {
 	text := out.String()
 	for _, want := range []string{
 		"== sim-S2-seed1 (sim, realistic", "== sim-S7-seed1", "SLO compliance", "instance-minutes",
-		"time-to-relief", "decision", "stuck terminations", "warmup", "reason codes", "INCREASE_CPU_HIGH",
+		"time-to-relief", "capacity-relieved", "stuck terminations", "warmup", "reason codes", "INCREASE_CPU_HIGH",
 		"run", "relief median", "breaker resets",
 		"SLO compliance    n/a", // S9 has no traffic, so the SLO is not evaluable
 	} {

@@ -97,22 +97,34 @@ type Changes struct {
 // Relief summarizes the overload incidents.
 type Relief struct {
 	Incidents []Incident `json:"incidents"`
-	// Summary over the resolved incidents that triggered a scale-out.
-	Resolved int      `json:"resolved_with_scale_out"`
-	Median   Duration `json:"median"`
-	Max      Duration `json:"max"`
+	// Summary counts incidents where more instances were in service when
+	// the CPU returned below the trigger than when it first crossed it.
+	RelivedByCapacity int      `json:"relieved_by_capacity"`
+	// SelfResolved counts incidents where the spike ended without extra
+	// capacity arriving (transient or single-cycle spikes).
+	SelfResolved int      `json:"self_resolved"`
+	// Median and Max are computed only over capacity-relieved incidents.
+	Median Duration `json:"median"`
+	Max    Duration `json:"max"`
 }
 
 // Incident runs from the first cycle with CPU at or above the scale-out
 // trigger to the first cycle where CPU is valid and back below it.
 type Incident struct {
-	StartCycle int64 `json:"start_cycle"`
-	EndCycle   int64 `json:"end_cycle,omitempty"`
-	Resolved   bool  `json:"resolved"`
+	StartCycle        int64 `json:"start_cycle"`
+	EndCycle          int64 `json:"end_cycle,omitempty"`
+	StartInService    int   `json:"start_in_service"`
+	Resolved          bool  `json:"resolved"`
 	// ScaledOut tells whether an INCREASE_CAPACITY decision happened
-	// during the incident; transient spikes resolve without one.
-	ScaledOut       bool     `json:"scaled_out"`
-	TimeToRelief    Duration `json:"time_to_relief"`
+	// during the incident.
+	ScaledOut bool `json:"scaled_out"`
+	// RelievedByCapacity is true when the incident resolved and more
+	// instances were in service at the relief cycle than at the start.
+	// When false the spike ended by itself before new capacity arrived.
+	RelievedByCapacity bool     `json:"relieved_by_capacity"`
+	TimeToRelief       Duration `json:"time_to_relief"`
+	// DecisionLatency and ReactionTime are only meaningful when
+	// RelievedByCapacity is true.
 	DecisionLatency Duration `json:"decision_latency"`
 	ReactionTime    Duration `json:"reaction_time"`
 }
@@ -370,21 +382,29 @@ func relief(cycles []Cycle) Relief {
 		high := valid && cpu >= trigger
 		switch {
 		case cur == nil && high:
-			cur = &Incident{StartCycle: c.CycleID}
+			cur = &Incident{StartCycle: c.CycleID, StartInService: c.Capacity.InService}
 			start, firstIncrease = c.TS, time.Time{}
 		case cur != nil && valid && !high:
-			cur.EndCycle, cur.Resolved = c.CycleID, true
+			cur.EndCycle = c.CycleID
+			cur.Resolved = true
 			cur.TimeToRelief = Duration(c.TS.Sub(start))
-			if cur.ScaledOut {
-				cur.DecisionLatency = Duration(firstIncrease.Sub(start))
-				cur.ReactionTime = Duration(c.TS.Sub(firstIncrease))
+			// Capacity brought relief only when in_service grew.
+			if c.Capacity.InService > cur.StartInService {
+				cur.RelievedByCapacity = true
+				if !firstIncrease.IsZero() {
+					cur.DecisionLatency = Duration(firstIncrease.Sub(start))
+					cur.ReactionTime = Duration(c.TS.Sub(firstIncrease))
+				}
 			}
 			rel.Incidents = append(rel.Incidents, *cur)
 			cur = nil
 			continue
 		}
-		if cur != nil && !cur.ScaledOut && c.Decision == core.IncreaseCapacity {
-			cur.ScaledOut, firstIncrease = true, c.TS
+		if cur != nil && !firstIncrease.IsZero() {
+			// already recorded
+		} else if cur != nil && c.Decision == core.IncreaseCapacity {
+			cur.ScaledOut = true
+			firstIncrease = c.TS
 		}
 	}
 	if cur != nil {
@@ -392,11 +412,15 @@ func relief(cycles []Cycle) Relief {
 	}
 	var ttr []time.Duration
 	for _, in := range rel.Incidents {
-		if in.Resolved && in.ScaledOut {
-			ttr = append(ttr, time.Duration(in.TimeToRelief))
+		if in.Resolved {
+			if in.RelievedByCapacity {
+				ttr = append(ttr, time.Duration(in.TimeToRelief))
+				rel.RelivedByCapacity++
+			} else {
+				rel.SelfResolved++
+			}
 		}
 	}
-	rel.Resolved = len(ttr)
 	rel.Median = Duration(median(ttr))
 	if len(ttr) > 0 {
 		rel.Max = Duration(slices.Max(ttr))

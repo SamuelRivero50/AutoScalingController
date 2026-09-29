@@ -218,34 +218,120 @@ func TestDirection(t *testing.T) {
 
 func TestEvaluate_Relief(t *testing.T) {
 	t.Parallel()
+
+	// Incident 1: scale-out decided AND more instances arrive → RelievedByCapacity.
+	// Incident 2: spike ends by itself, no new instances → SelfResolved (transient).
+	// Incident 3: unresolved at end of run.
 	inc := cyc{cpu: 85, inService: 2, decision: core.IncreaseCapacity, reason: core.ReasonIncreaseCPUHigh}
 	rep := Evaluate(build(
 		cyc{cpu: 40, inService: 2},
-		cyc{cpu: 75, inService: 2}, // incident 1 starts (minute 1)
-		cyc{cpu: -1, inService: 2}, // missing CPU does not end it
-		inc,                        // scale-out decided (minute 3)
-		cyc{cpu: 60, inService: 4}, // relieved (minute 4)
-		cyc{cpu: 90, inService: 4}, // incident 2: transient spike
-		cyc{cpu: 50, inService: 4},
-		cyc{cpu: 95, inService: 4}, // incident 3: unresolved
+		cyc{cpu: 75, inService: 2},  // incident 1 starts (minute 1)
+		cyc{cpu: -1, inService: 2},  // missing CPU does not end it
+		inc,                         // scale-out decided (minute 3)
+		cyc{cpu: 60, inService: 4},  // relieved with more instances (minute 4)
+		cyc{cpu: 90, inService: 4},  // incident 2: transient spike
+		cyc{cpu: 50, inService: 4},  // ends at same capacity → self-resolved
+		cyc{cpu: 95, inService: 4},  // incident 3: unresolved
 	))
 	rel := rep.Relief
 	if len(rel.Incidents) != 3 {
 		t.Fatalf("incidents = %+v", rel.Incidents)
 	}
 	first := rel.Incidents[0]
-	if !first.Resolved || !first.ScaledOut || first.StartCycle != 2 || first.EndCycle != 5 ||
-		first.TimeToRelief != Duration(3*time.Minute) || first.DecisionLatency != Duration(2*time.Minute) || first.ReactionTime != Duration(time.Minute) {
+	if !first.Resolved || !first.RelievedByCapacity || !first.ScaledOut ||
+		first.StartCycle != 2 || first.EndCycle != 5 ||
+		first.StartInService != 2 ||
+		first.TimeToRelief != Duration(3*time.Minute) ||
+		first.DecisionLatency != Duration(2*time.Minute) ||
+		first.ReactionTime != Duration(time.Minute) {
 		t.Fatalf("incident 1 = %+v", first)
 	}
-	if second := rel.Incidents[1]; !second.Resolved || second.ScaledOut {
-		t.Fatalf("incident 2 = %+v, want resolved without scale-out", second)
+	// Incident 2: spike resolved but at same in_service → not RelievedByCapacity.
+	second := rel.Incidents[1]
+	if !second.Resolved || second.RelievedByCapacity {
+		t.Fatalf("incident 2 = %+v, want resolved self-resolved", second)
 	}
 	if third := rel.Incidents[2]; third.Resolved {
 		t.Fatalf("incident 3 = %+v, want unresolved", third)
 	}
-	if rel.Resolved != 1 || rel.Median != Duration(3*time.Minute) || rel.Max != Duration(3*time.Minute) {
+	if rel.RelivedByCapacity != 1 || rel.SelfResolved != 1 ||
+		rel.Median != Duration(3*time.Minute) || rel.Max != Duration(3*time.Minute) {
 		t.Fatalf("summary = %+v", rel)
+	}
+}
+
+// TestEvaluate_Relief_S3andS10 exercises the precise scenario the spec
+// describes: S3 cycles 18-20 and S10 cycles 38-40 end before capacity
+// arrives and must be self-resolved; S2 and S7-style incidents must be
+// capacity-relieved.
+func TestEvaluate_Relief_S3andS10(t *testing.T) {
+	t.Parallel()
+	// S3-like: two breaching cycles (18-19) then spike drops at cycle 20
+	// with in_service still 2 (capacity not yet arrived).
+	// The INCREASE was decided at cycle 19 but the instance is PENDING at cycle 20.
+	s3 := build(
+		// cycles 1-17: stable, in_service=2
+		func() []cyc {
+			var cs []cyc
+			for range 17 {
+				cs = append(cs, cyc{cpu: 40, inService: 2})
+			}
+			return cs
+		}()...,
+	)
+	// cycle 18: first breach, window not met yet → MAINTAIN
+	s3.Cycles = append(s3.Cycles, func() Cycle {
+		c := build(cyc{cpu: 82, inService: 2}).Cycles[0]
+		c.CycleID = 18
+		c.TS = t0.Add(17 * time.Minute)
+		return c
+	}())
+	// cycle 19: second breach, INCREASE decided
+	s3.Cycles = append(s3.Cycles, func() Cycle {
+		c := build(cyc{cpu: 82, inService: 2, decision: core.IncreaseCapacity, reason: core.ReasonIncreaseCPUHigh}).Cycles[0]
+		c.CycleID = 19
+		c.TS = t0.Add(18 * time.Minute)
+		return c
+	}())
+	// cycle 20: CPU drops back, but in_service is still 2 (pending not arrived)
+	s3.Cycles = append(s3.Cycles, func() Cycle {
+		c := build(cyc{cpu: 45, inService: 2}).Cycles[0]
+		c.CycleID = 20
+		c.TS = t0.Add(19 * time.Minute)
+		return c
+	}())
+
+	rel := relief(s3.Cycles)
+	if len(rel.Incidents) != 1 {
+		t.Fatalf("S3-like: expected 1 incident, got %d", len(rel.Incidents))
+	}
+	inc := rel.Incidents[0]
+	if inc.RelievedByCapacity {
+		t.Errorf("S3 cycles 18-20: spike ended before capacity arrived, want self-resolved, got RelievedByCapacity=true")
+	}
+	if !inc.ScaledOut {
+		t.Errorf("S3 cycles 18-20: INCREASE was decided, want ScaledOut=true")
+	}
+	if rel.RelivedByCapacity != 0 || rel.SelfResolved != 1 {
+		t.Errorf("S3-like summary: want 0 capacity-relieved, 1 self-resolved; got %+v", rel)
+	}
+
+	// S2-like: overload starts, scale-out decided, more instances arrive.
+	s2 := build(
+		cyc{cpu: 40, inService: 1},
+		cyc{cpu: 99, inService: 1},  // incident starts
+		cyc{cpu: 99, inService: 1, decision: core.IncreaseCapacity, reason: core.ReasonIncreaseCPUHigh}, // INCREASE decided
+		cyc{cpu: 50, inService: 2},  // CPU drops, in_service grew → capacity relieved
+	)
+	rel2 := relief(s2.Cycles)
+	if len(rel2.Incidents) != 1 {
+		t.Fatalf("S2-like: expected 1 incident, got %d", len(rel2.Incidents))
+	}
+	if !rel2.Incidents[0].RelievedByCapacity {
+		t.Errorf("S2-like: in_service grew, want RelievedByCapacity=true")
+	}
+	if rel2.RelivedByCapacity != 1 || rel2.SelfResolved != 0 {
+		t.Errorf("S2-like summary = %+v", rel2)
 	}
 }
 
@@ -302,8 +388,22 @@ func TestEvaluate_Scenarios(t *testing.T) {
 			}
 		},
 		"S2": func(t *testing.T, r Report) {
-			if r.Changes.ScaleOuts == 0 || r.Relief.Resolved == 0 {
-				t.Errorf("sustained increase not relieved by scale-out: %+v %+v", r.Changes, r.Relief)
+			if r.Changes.ScaleOuts == 0 || r.Relief.RelivedByCapacity == 0 {
+				t.Errorf("sustained increase not relieved by new capacity: %+v %+v", r.Changes, r.Relief)
+			}
+		},
+		"S3": func(t *testing.T, r Report) {
+			// Genuine spike (cycles 18-20) ends before warmup completes:
+			// the one incident that involves a scale-out must be self-resolved,
+			// not capacity-relieved.
+			allSelf := true
+			for _, in := range r.Relief.Incidents {
+				if in.ScaledOut && in.RelievedByCapacity {
+					allSelf = false
+				}
+			}
+			if !allSelf {
+				t.Errorf("S3: spike ended before capacity arrived, all scaled-out incidents must be self-resolved: %+v", r.Relief)
 			}
 		},
 		"S4": func(t *testing.T, r Report) {
@@ -320,10 +420,18 @@ func TestEvaluate_Scenarios(t *testing.T) {
 			if r.Changes.Skipped+r.Changes.Errors == 0 {
 				t.Errorf("launch failures left no trace: %+v", r.Changes)
 			}
+			// S6 incident resolves with more in_service after the breaker opens,
+			// so it should be capacity-relieved.
+			if r.Relief.RelivedByCapacity == 0 {
+				t.Errorf("S6: incident expected to be capacity-relieved: %+v", r.Relief)
+			}
 		},
 		"S7": func(t *testing.T, r Report) {
 			if r.Changes.Terminations == 0 {
 				t.Errorf("stuck instance not terminated: %+v", r.Changes)
+			}
+			if r.Relief.RelivedByCapacity == 0 {
+				t.Errorf("S7: incident expected to be capacity-relieved: %+v", r.Relief)
 			}
 		},
 		"S8": func(t *testing.T, r Report) {

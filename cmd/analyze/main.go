@@ -116,17 +116,19 @@ func printReport(w io.Writer, r evaluation.Report) {
 		c.Reversals, c.IncreaseAfterReduce)
 
 	rel := r.Relief
-	row("time-to-relief", "%d incidents, %d relieved by scale-out (median %s, max %s)",
-		len(rel.Incidents), rel.Resolved, dur(rel.Median), dur(rel.Max))
+	row("time-to-relief", "%d incidents: %d capacity-relieved (median %s, max %s), %d self-resolved",
+		len(rel.Incidents), rel.RelivedByCapacity, dur(rel.Median), dur(rel.Max), rel.SelfResolved)
 	for i, in := range rel.Incidents {
 		switch {
 		case !in.Resolved:
 			row("", "#%d from cycle %d: not relieved by the end of the run", i+1, in.StartCycle)
-		case in.ScaledOut:
-			row("", "#%d cycles %d-%d: %s = decision %s + reaction %s", i+1, in.StartCycle, in.EndCycle,
+		case in.RelievedByCapacity:
+			row("", "#%d cycles %d-%d: %s = decision %s + reaction %s (capacity arrived)", i+1, in.StartCycle, in.EndCycle,
 				dur(in.TimeToRelief), dur(in.DecisionLatency), dur(in.ReactionTime))
+		case in.ScaledOut:
+			row("", "#%d cycles %d-%d: %s, self-resolved (scale-out decided but capacity not yet arrived)", i+1, in.StartCycle, in.EndCycle, dur(in.TimeToRelief))
 		default:
-			row("", "#%d cycles %d-%d: %s, transient (no scale-out)", i+1, in.StartCycle, in.EndCycle, dur(in.TimeToRelief))
+			row("", "#%d cycles %d-%d: %s, self-resolved (no scale-out)", i+1, in.StartCycle, in.EndCycle, dur(in.TimeToRelief))
 		}
 	}
 
