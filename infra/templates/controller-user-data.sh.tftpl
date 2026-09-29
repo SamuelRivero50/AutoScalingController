@@ -1,0 +1,78 @@
+#!/bin/bash
+# Controller instance bootstrap (docs/spec/infrastructure.md §2-§3):
+# fetch the controller and stress binaries, write the rendered
+# configuration, run the controller under systemd, and sync the decision
+# logs to S3 every 60 seconds (ADR-0018).
+set -euo pipefail
+
+for bin in controller stress; do
+  for attempt in 1 2 3 4 5; do
+    if aws s3 cp "s3://${bucket}/bin/$bin" "/usr/local/bin/$bin"; then
+      break
+    fi
+    if [ "$attempt" -eq 5 ]; then
+      echo "$bin download failed" >&2
+      exit 1
+    fi
+    sleep $((attempt * 2))
+  done
+  chmod 0755 "/usr/local/bin/$bin"
+done
+
+useradd --system --no-create-home --shell /sbin/nologin asc || true
+install -d -m 0755 /etc/asc
+cat > /etc/asc/controller.json <<'CONFIG'
+${controller_config}
+CONFIG
+chmod 0644 /etc/asc/controller.json
+
+cat > /etc/systemd/system/asc-controller.service <<'UNIT'
+[Unit]
+Description=Auto-scaling controller
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=asc
+Environment=AWS_REGION=${region}
+ExecStart=/usr/local/bin/controller -config /etc/asc/controller.json
+Restart=on-failure
+RestartSec=10
+StateDirectory=asc
+LogsDirectory=asc
+LogsDirectoryMode=0755
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+# Evidence persistence: the AWS CLI, not the controller, uploads the logs.
+cat > /etc/systemd/system/asc-evidence.service <<'UNIT'
+[Unit]
+Description=Upload the controller decision logs to S3
+
+[Service]
+Type=oneshot
+Environment=AWS_REGION=${region}
+ExecStart=/usr/bin/aws s3 sync /var/log/asc "s3://${bucket}/logs/" --exclude "*" --include "*.jsonl"
+UNIT
+
+cat > /etc/systemd/system/asc-evidence.timer <<'UNIT'
+[Unit]
+Description=Upload the controller decision logs to S3 every 60 seconds
+
+[Timer]
+OnBootSec=60
+OnUnitActiveSec=60
+AccuracySec=5
+
+[Install]
+WantedBy=timers.target
+UNIT
+
+systemctl daemon-reload
+systemctl enable --now asc-controller.service asc-evidence.timer

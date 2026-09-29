@@ -1,0 +1,16 @@
+${jsonencode({
+  version = 1
+  mode    = "real"
+  profile = profile
+  aws = {
+    region                  = region
+    asg_name                = asg_name
+    target_group_arn        = target_group_arn
+    load_balancer_dimension = load_balancer_dimension
+    target_group_dimension  = target_group_dimension
+  }
+  paths = {
+    log_dir    = "/var/log/asc"
+    state_file = "/var/lib/asc/state.json"
+  }
+})}

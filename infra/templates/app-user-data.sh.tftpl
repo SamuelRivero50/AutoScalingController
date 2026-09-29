@@ -1,0 +1,41 @@
+#!/bin/bash
+# Application instance bootstrap: fetch the test application from the
+# project bucket and run it under systemd (docs/spec/infrastructure.md §2).
+set -euo pipefail
+
+for attempt in 1 2 3 4 5; do
+  if aws s3 cp "s3://${bucket}/bin/testapp" /usr/local/bin/testapp; then
+    break
+  fi
+  if [ "$attempt" -eq 5 ]; then
+    echo "testapp download failed" >&2
+    exit 1
+  fi
+  sleep $((attempt * 2))
+done
+chmod 0755 /usr/local/bin/testapp
+
+useradd --system --no-create-home --shell /sbin/nologin testapp || true
+
+cat > /etc/systemd/system/testapp.service <<'UNIT'
+[Unit]
+Description=Auto-scaling test application
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=testapp
+ExecStart=/usr/local/bin/testapp -addr :${app_port}
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+systemctl daemon-reload
+systemctl enable --now testapp.service
