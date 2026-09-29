@@ -20,6 +20,15 @@ type stateDTO struct {
 	ActivityWatermark time.Time     `json:"activity_watermark"`
 	SeenActivities    []string      `json:"seen_activities"`
 	LastInstances     []instanceDTO `json:"last_instances"`
+	// Drains was added without a version bump: older files simply have
+	// no tracked drains.
+	Drains []drainDTO `json:"drains,omitempty"`
+}
+
+type drainDTO struct {
+	InstanceID string    `json:"instance_id"`
+	Since      time.Time `json:"since"`
+	Expired    bool      `json:"expired"`
 }
 
 type memoryDTO struct {
@@ -83,6 +92,9 @@ func toDTO(s ports.State) stateDTO {
 	for _, in := range s.LastInstances {
 		d.LastInstances = append(d.LastInstances, instanceDTO(in))
 	}
+	for _, dr := range s.Drains {
+		d.Drains = append(d.Drains, drainDTO(dr))
+	}
 	return d
 }
 
@@ -111,6 +123,9 @@ func fromDTO(d stateDTO) ports.State {
 	}
 	for _, in := range d.LastInstances {
 		s.LastInstances = append(s.LastInstances, core.Instance(in))
+	}
+	for _, dr := range d.Drains {
+		s.Drains = append(s.Drains, ports.Drain(dr))
 	}
 	return s
 }

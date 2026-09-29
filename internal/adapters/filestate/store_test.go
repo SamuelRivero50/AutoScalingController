@@ -30,6 +30,23 @@ func sampleState() ports.State {
 		ActivityWatermark: t0.Add(-time.Hour),
 		SeenActivities:    []string{"act-1", "act-2"},
 		LastInstances:     []core.Instance{{ID: "i-1", AZ: "az-a", State: core.InstanceInService, LaunchedAt: t0}},
+		Drains:            []ports.Drain{{InstanceID: "i-2", Since: t0.Add(-2 * time.Minute), Expired: true}},
+	}
+}
+
+// TestStore_LoadWithoutDrains keeps files written before drain tracking
+// was added loadable.
+func TestStore_LoadWithoutDrains(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	if err := os.WriteFile(path, []byte(`{"version":1,"run_id":"r","next_cycle":3}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := New(path).Load(t.Context())
+	if err != nil {
+		t.Fatalf("Load = %v, want nil", err)
+	}
+	if got.RunID != "r" || got.NextCycle != 3 || len(got.Drains) != 0 {
+		t.Fatalf("Load = %+v", got)
 	}
 }
 

@@ -63,5 +63,6 @@ func clone(st ports.State) ports.State {
 	st.Memory.Entries = slices.Clone(st.Memory.Entries)
 	st.SeenActivities = slices.Clone(st.SeenActivities)
 	st.LastInstances = slices.Clone(st.LastInstances)
+	st.Drains = slices.Clone(st.Drains)
 	return st
 }

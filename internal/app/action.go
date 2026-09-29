@@ -111,17 +111,15 @@ func (cy *cycle) execute(ctx context.Context, p plan) ports.ActionOutcome {
 		return out
 	}
 
-	cctx, cancel := cy.call(ctx)
-	defer cancel()
 	began := cy.c.deps.Clock.Now()
 	var (
 		res ports.ActionResult
 		err error
 	)
 	if p.actionType == core.ActionTerminateInstance {
-		res, err = cy.c.deps.Provisioner.TerminateInstance(cctx, p.instanceID)
+		res, err = cy.c.deps.Provisioner.TerminateInstance(ctx, p.instanceID)
 	} else {
-		res, err = cy.c.deps.Provisioner.SetDesiredCapacity(cctx, p.target)
+		res, err = cy.c.deps.Provisioner.SetDesiredCapacity(ctx, p.target)
 	}
 	elapsed := cy.c.deps.Clock.Now().Sub(began)
 	out.Duration = &elapsed

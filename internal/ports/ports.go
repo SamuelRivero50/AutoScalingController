@@ -106,6 +106,17 @@ type State struct {
 	// LastInstances is the instance view of the previous cycle, used to
 	// emit INSTANCE_STATE_CHANGE events.
 	LastInstances []core.Instance
+	// Drains tracks instances seen DRAINING, to enforce the drain timeout
+	// (docs/spec/lifecycle-and-failures.md §4).
+	Drains []Drain
+}
+
+// Drain records when an instance was first seen DRAINING and whether its
+// drain timeout has already expired.
+type Drain struct {
+	InstanceID string
+	Since      time.Time
+	Expired    bool
 }
 
 // StateStore persists State.
