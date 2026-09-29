@@ -35,6 +35,8 @@ infra/**/*.tfstate
 infra/**/*.tfstate.*
 infra/**/*.tfplan
 infra/**/crash.log
+infra/**/*.tfvars
+!infra/**/*.tfvars.example
 
 # Decision logs and collected evidence
 logs/

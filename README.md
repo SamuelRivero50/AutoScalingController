@@ -9,13 +9,13 @@ Every decision is a pure function of an observed snapshot (CPU, latency, error r
 
 ## Status
 
-The decision core and the closed-loop simulator are complete and tested. The real-AWS adapters and infrastructure are not implemented yet.
+The decision core, the closed-loop simulator, the real AWS adapters, the controller entrypoint and the Terraform infrastructure are implemented and tested. The guarded real-AWS run is still pending.
 
 | Milestone | Scope | State |
 | --- | --- | --- |
 | M1 | Pure decision core and policy | Done |
 | M2 | Ports, simulated adapters, control loop, simulator (S1-S10) | Done |
-| M3 | Terraform infrastructure, real CloudWatch/EC2 adapters, test app | Not started |
+| M3 | Terraform infrastructure, real CloudWatch/EC2 adapters, test app, stress tool | Implemented; real run pending |
 | M4 | Log analysis and evaluation report | Not started |
 
 ## Requirements
@@ -23,6 +23,7 @@ The decision core and the closed-loop simulator are complete and tested. The rea
 - Go 1.27 or later (see `go.mod`)
 - A POSIX shell and `make` (optional; every target maps to a plain `go` command)
 - `golangci-lint` v2 for linting (`make tools` installs it into `$(go env GOPATH)/bin`)
+- For the real-AWS run only: Terraform 1.10 or later and AWS CLI v2
 
 No AWS account or credentials are needed to build, test, or run the simulator.
 
@@ -59,7 +60,22 @@ make race    # run the tests with the race detector
 make lint    # run golangci-lint
 make fmt     # format the code
 make check   # fmt + vet + lint + race (what CI should run)
+make tf-check     # terraform fmt -check + validate (no AWS calls)
+make build-linux  # linux/amd64 testapp, controller and stress binaries in bin/
 ```
+
+The controller can also run locally on simulated adapters and the wall clock, as a smoke test of the real entrypoint:
+
+```bash
+cat > /tmp/controller.json <<'EOF'
+{"version": 1, "mode": "sim", "profile": "demo",
+ "sim": {"load": 1.5, "initial_desired": 1, "seed": 1},
+ "paths": {"log_dir": "logs", "state_file": "logs/state.json"}}
+EOF
+go run ./cmd/controller -config /tmp/controller.json   # Ctrl-C to stop
+```
+
+Secret scanning: `pre-commit install` enables the gitleaks hook from `.pre-commit-config.yaml`; the same scan runs in GitHub Actions on every push.
 
 Every target is a thin wrapper over the underlying `go` command; run `make help`-style by reading the `Makefile` if you prefer to invoke `go` directly.
 
@@ -80,22 +96,29 @@ The controller is a hexagon: a pure decision core surrounded by an imperative sh
 - `internal/core` — the pure decision function, signal classification, evaluation windows and circuit breaker. Standard library only; no I/O, no clock, no globals.
 - `internal/ports` — the five port interfaces (`MetricsSource`, `InstanceProvisioner`, `StateStore`, `DecisionLogger`, `Clock`).
 - `internal/app` — the control loop: per-cycle time budget, one action per cycle, event logging, config hashing.
-- `internal/adapters` — simulated adapters (`fakeasg`, `mockmetrics`, `clock`, `filestate`, `memstate`, `jsonllog`); real AWS adapters arrive in M3.
+- `internal/adapters` — real AWS adapters (`cloudwatch`, `asg`, with the shared SDK setup in `awsclient`) and simulated adapters (`fakeasg`, `mockmetrics`, `clock`, `filestate`, `memstate`, `jsonllog`). A test (`awsiam`) keeps `infra/iam/controller-policy.json` equal to the AWS operations the adapters can call.
+- `internal/config` + `cmd/controller` — the versioned configuration file, resolved on a profile, and the entrypoint that wires the adapters.
 - `internal/simulator` + `cmd/simulator` — the S1-S10 scenarios and the command that runs them.
+- `cmd/testapp` and `cmd/stress` — the minimal application behind the ALB and the operator tool that triggers its CPU stress.
 
 The decision rules, thresholds, windows and failure handling are specified normatively in [`docs/spec/`](docs/spec/); the reasoning behind each choice is in [`docs/adr/`](docs/adr/).
 
 ## Repository layout
 
 ```
+cmd/controller/        controller entrypoint (real or sim adapters, from the config file)
 cmd/simulator/         closed-loop simulator (scenarios S1-S10)
+cmd/testapp/           test application (/, /health, /admin/stress)
+cmd/stress/            operator tool that triggers /admin/stress
 internal/core/         pure decision function and domain types
 internal/ports/        port interfaces
 internal/app/          control loop
-internal/adapters/     simulated adapters (real AWS adapters land in M3)
+internal/config/       configuration file decoding and resolution
+internal/adapters/     real AWS and simulated adapters
 internal/simulator/    scenario definitions and runner
+infra/                 Terraform root module; infra/iam/ holds the least-privilege policy
+scripts/               operator scripts (collect-evidence.sh)
 docs/                  design documentation (see below)
-infra/iam/             least-privilege IAM policy document
 ```
 
 ## Documentation
@@ -110,11 +133,65 @@ infra/iam/             least-privilege IAM policy document
 
 ## Running against real AWS
 
-Not available yet — the Terraform infrastructure and the real CloudWatch/EC2 adapters are Milestone 3. When implemented, the run will be guarded: a cost estimate and explicit confirmation before `terraform apply`, and a mandatory `terraform destroy` afterwards, because the Application Load Balancer keeps billing after an AWS Academy session ends even though EC2 instances auto-stop (see [`docs/context/constraints.md`](docs/context/constraints.md) and [ADR-0016](docs/adr/0016-destroy-per-session-cost-control.md)).
+> **Destroy per session.** The Application Load Balancer keeps billing after an AWS Academy session ends, even though EC2 instances auto-stop, and the Academy billing view lags by 8-12 hours. Every session is `apply` → run → collect evidence → `destroy`. See [`docs/context/constraints.md`](docs/context/constraints.md) and [ADR-0016](docs/adr/0016-destroy-per-session-cost-control.md).
+
+### 1. Review the cost estimate
+
+Estimate for a 4-hour session in `us-east-1`: the controller plus an average of 3 application instances (`t3.micro`), one ALB and its 2 public IPv4 addresses. Review it against the current [EC2](https://aws.amazon.com/ec2/pricing/on-demand/), [ELB](https://aws.amazon.com/elasticloadbalancing/pricing/), [VPC](https://aws.amazon.com/vpc/pricing/), [CloudWatch](https://aws.amazon.com/cloudwatch/pricing/) and [S3](https://aws.amazon.com/s3/pricing/) pricing before each apply.
+
+| Item | Rate (us-east-1) | 4-hour session |
+| --- | --- | --- |
+| ALB hours | $0.0225 per hour | $0.09 |
+| ALB LCUs (about 1 LCU at test traffic) | $0.008 per LCU-hour | $0.03 |
+| EC2 `t3.micro` (1 controller + 3 app on average) | $0.0104 per instance-hour | $0.17 |
+| `unlimited` surplus credits (worst case: 3 instances at 85% CPU for 1 hour) | $0.05 per vCPU-hour | $0.23 |
+| Public IPv4 (2 ALB nodes + 4 instances) | $0.005 per address-hour | $0.12 |
+| Detailed monitoring (3 app instances) | 7 metrics × $0.30 per metric-month, prorated hourly | $0.04 |
+| `GetMetricData` (about 11 metrics per minute) | $0.01 per 1,000 metrics | $0.03 |
+| S3 (about 25 MB of binaries plus logs) | storage and requests | < $0.01 |
+| **Total** | | **≈ $0.70** |
+
+A forgotten ALB alone costs about $0.54 a day; the destroy step is not optional.
+
+### 2. Apply
+
+```bash
+make build-linux                                  # bin/testapp, bin/controller, bin/stress
+cp infra/terraform.tfvars.example infra/terraform.tfvars   # set operator_ssh_cidr, key_name
+terraform -chdir=infra init
+terraform -chdir=infra plan -out=session.tfplan
+terraform -chdir=infra apply session.tfplan
+```
+
+Required variables: `operator_ssh_cidr` (your IP as `/32`). Common ones: `region` (default `us-east-1`), `key_name` (Learner Lab: `vockey`), `instance_profile_name` (default `LabInstanceProfile`), `create_iam` (default `false`; `true` in a normal account creates the least-privilege roles), `detailed_monitoring` (default `true`).
+
+Terraform renders the controller configuration from its own outputs and delivers it through user data, so nothing is re-pointed by hand. The controller starts under systemd and waits up to 10 minutes for the target-group metrics to appear before its first cycle.
+
+### 3. Run the experiment
+
+```bash
+ssh ec2-user@"$(terraform -chdir=infra output -raw controller_public_ip)"
+sudo journalctl -u asc-controller -f              # operational log
+sudo tail -f /var/log/asc/decisions-*.jsonl       # decision log
+# Stress one or all application instances from the controller host (private IPs):
+stress -targets 10.40.0.12,10.40.1.34 -duration 5m
+```
+
+`/admin/stress` is reachable only from the controller host; the ALB answers `403` for `/admin/*`.
+
+### 4. Collect the evidence, then destroy
+
+```bash
+ssh ec2-user@<controller> 'sudo systemctl stop asc-controller && sudo systemctl start asc-evidence'
+scripts/collect-evidence.sh                       # syncs s3://<bucket>/logs/ to evidence/<timestamp>; fails if empty
+terraform -chdir=infra destroy
+```
+
+The bucket uses `force_destroy`, so `destroy` deletes the uploaded logs too: run `collect-evidence.sh` first and check that it reports `OK`.
 
 ## Credentials
 
-No AWS credentials are ever committed to this repository. Local runs use environment variables from the AWS Academy Learner Lab's temporary session-token credentials; the real deployment will use an EC2 instance profile. See [`docs/spec/iam.md`](docs/spec/iam.md).
+No AWS credentials are ever committed to this repository. Local runs use environment variables from the AWS Academy Learner Lab's temporary session-token credentials; the real deployment uses an EC2 instance profile. See [`docs/spec/iam.md`](docs/spec/iam.md).
 
 ## License
 

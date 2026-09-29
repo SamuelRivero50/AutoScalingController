@@ -3,7 +3,7 @@ GOBIN := $(shell $(GO) env GOPATH)/bin
 # Prefer golangci-lint on PATH, otherwise fall back to the one in GOPATH/bin.
 GOLANGCI_LINT ?= $(shell command -v golangci-lint 2>/dev/null || echo $(GOBIN)/golangci-lint)
 
-.PHONY: build test race lint fmt vet cover sim tidy check tools
+.PHONY: build build-linux test race lint fmt vet cover sim tidy check tools tf-check
 
 ## build: compile all packages and commands
 build:
@@ -37,6 +37,19 @@ fmt:
 ## cover: run tests and print total coverage
 cover:
 	$(GO) test -cover ./...
+
+## build-linux: build the deployable linux/amd64 binaries into bin/ (used by infra/)
+build-linux:
+	mkdir -p bin
+	for cmd in testapp controller stress; do \
+		CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -ldflags="-s -w" -o bin/$$cmd ./cmd/$$cmd || exit 1; \
+	done
+
+## tf-check: format-check and validate the Terraform module (no AWS calls)
+tf-check:
+	terraform -chdir=infra fmt -check -recursive
+	terraform -chdir=infra init -backend=false -input=false
+	terraform -chdir=infra validate
 
 ## sim: run all simulator scenarios
 sim:
