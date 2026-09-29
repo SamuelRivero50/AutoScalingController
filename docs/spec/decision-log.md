@@ -70,6 +70,8 @@ No code outside this list may be emitted; adding a new one requires updating thi
 
 `NO_HEALTHY_TARGETS_ALERT` is emitted on cycles decided as `MAINTAIN_NO_HEALTHY_TARGETS`; `BLIND_ALERT` once when the consecutive blind-cycle streak reaches the configured threshold.
 
+`INSTANCE_STATE_CHANGE` details are `{instance_id, az, from, to}` (`from` is `null` for an instance seen for the first time; `to` is `TERMINATED` when it disappears). When a drain times out (`docs/spec/lifecycle-and-failures.md` §4) one extra event is emitted with `from` = `to` = `DRAINING`, `drain_timeout_expired: true` and `draining_since`; from that cycle on the instance is left out of the cycle record's `capacity` and no longer blocks scale-in.
+
 ## 5. Action conventions
 
 | Situation | `action.type` | `action.status` | `action.skip_reason` |

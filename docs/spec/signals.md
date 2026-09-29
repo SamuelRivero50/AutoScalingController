@@ -24,10 +24,11 @@
 ## 3. Fetch cadence and CloudWatch limits
 
 - ALB metrics are published to CloudWatch on a **fixed 60-second granularity** — this is not configurable and directly sets the realistic-profile evaluation interval (see `docs/spec/configuration.md`).
-- EC2 **basic** monitoring reports CPU every 5 minutes by default. **Decision**: enable **Detailed Monitoring** (1-minute CPU) if the AWS Academy Learner Lab permits it (additional cost ~$0.03/instance/month, negligible). If detailed monitoring is unavailable in the lab, a datapoint-deduplication safeguard is used: the same 5-minute CPU reading is not allowed to satisfy more than one 60-second evaluation window (tracked via `last-consumed datapoint timestamp` in the state store), so a stale value cannot silently count as several independent confirmations.
+- EC2 **basic** monitoring reports CPU every 5 minutes by default. **Decision**: enable **Detailed Monitoring** (1-minute CPU) if the AWS Academy Learner Lab permits it (billed as 7 custom metrics per instance, about $2.10 per instance-month prorated hourly, i.e. about $0.003 per instance-hour — negligible for destroy-per-session runs). If detailed monitoring is unavailable in the lab, a datapoint-deduplication safeguard is used: the same 5-minute CPU reading is not allowed to satisfy more than one 60-second evaluation window (tracked via `last-consumed datapoint timestamp` in the state store), so a stale value cannot silently count as several independent confirmations.
 
 ## 4. Sources
 
 - AWS. *CloudWatch metrics for your Application Load Balancer* — https://docs.aws.amazon.com/elasticloadbalancing/latest/application/load-balancer-cloudwatch-metrics.html
 - AWS. *List the available CloudWatch metrics for your instances* — https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/viewing_metrics_with_cloudwatch.html
 - AWS. *Enable or turn off detailed monitoring for your instances* — https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/using-cloudwatch-new.html
+- AWS. *Amazon CloudWatch pricing* (detailed monitoring is billed as 7 custom metrics per instance) — https://aws.amazon.com/cloudwatch/pricing/

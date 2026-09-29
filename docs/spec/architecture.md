@@ -96,6 +96,8 @@ loop every EvaluationInterval (or immediately in simulator time):
 /internal/core/           pure decision function + types (no imports outside stdlib)
 /internal/app/            control loop, cycle budget, window/breaker bookkeeping
 /internal/ports/          port interfaces
+/internal/adapters/awsclient/  shared AWS SDK configuration for the real adapters (region, per-attempt timeout, retryer)
+/internal/adapters/awsiam/     test only: adapter API interfaces vs infra/iam/controller-policy.json
 /internal/adapters/cloudwatch/
 /internal/adapters/mockmetrics/
 /internal/adapters/asg/

@@ -56,3 +56,22 @@ Rule (both profiles): a cycle only counts toward a window if it is "fresh" (no p
 ## 5. Configuration mechanism
 
 The two profiles are defined in code as Go structs (the single source of the parameter values above). In real mode, parameters are loaded from a single versioned configuration file at controller startup and resolved on top of a profile (file loading is part of Milestone 3). A SHA-256 hash of the **resolved** configuration (`config_hash`) is computed over its canonical JSON encoding — never over the bytes of a file, so formatting or comment changes in the file do not change the hash, while any parameter change does. The hash (`config_hash`) is recorded in every decision-log `cycle` record (`docs/spec/decision-log.md`), so any two runs (or a run vs. a simulator scenario) can be verified to have used identical parameters before their results are compared — this directly supports REQ-PRESENT-8 (comparing two controller configurations at equal SLO).
+
+## 6. Configuration file format
+
+The file is JSON (standard library only) and is decoded strictly: unknown fields and trailing data are rejected, so a misspelled key cannot silently leave a parameter at its profile default. In the real deployment Terraform renders it (`infra/templates/controller.json.tftpl`).
+
+| Key | Meaning |
+|---|---|
+| `version` | file format version; only `1` is accepted |
+| `mode` | `real` (CloudWatch + Auto Scaling) or `sim` (simulated adapters on the wall clock, a local smoke test; experiments use `cmd/simulator`) |
+| `profile` | `realistic` or `demo`, the base the overrides apply to |
+| `run_id` | optional; generated as `run-<UTC timestamp>-<random>` when absent |
+| `aws` | real mode only: `region`, `asg_name`, `target_group_arn`, `load_balancer_dimension` and `target_group_dimension` (the ARN suffixes used as CloudWatch dimensions), optional `metrics_wait_timeout` (default `10m`) |
+| `sim` | sim mode only: `load` (instance units), `initial_desired`, `seed` |
+| `paths` | `log_dir` (decision log) and `state_file` (state store) |
+| `overrides` | optional: `latency_slo_ms`, `latency_comfort_ms`, `error_slo_pct`, `error_comfort_pct`, `scale_out_cpu`, `scale_in_projected_cpu`, and the durations `warmup`, `pending_timeout`, `deregistration_delay`, `drain_timeout` (Go duration strings such as `"90s"`) |
+
+Overrides exist for the values §2 and §3 expect to be replaced by measurements (latency SLO from the idle baseline, warmup from the measured launch time) and their dependents; window sizes, bounds and step sizes are not overridable. The resolved configuration is validated as a whole before the controller starts.
+
+At startup in real mode the controller checks with `cloudwatch:ListMetrics` that the target group's `HealthyHostCount` exists for the configured load balancer (proving both dimension values), retrying every 30 seconds until `metrics_wait_timeout`; a fresh deployment publishes it a few minutes after the first health checks. Traffic metrics are not required, because the ALB publishes them only after the first request.
