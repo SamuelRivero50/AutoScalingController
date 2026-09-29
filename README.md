@@ -9,14 +9,14 @@ Every decision is a pure function of an observed snapshot (CPU, latency, error r
 
 ## Status
 
-The decision core, the closed-loop simulator, the real AWS adapters, the controller entrypoint and the Terraform infrastructure are implemented and tested. The guarded real-AWS run is still pending.
+The decision core, the closed-loop simulator, the real AWS adapters, the controller entrypoint, the Terraform infrastructure, the log analysis and the live demo are implemented and tested. The guarded real-AWS run, and the report sections that depend on it, are still pending.
 
 | Milestone | Scope | State |
 | --- | --- | --- |
 | M1 | Pure decision core and policy | Done |
 | M2 | Ports, simulated adapters, control loop, simulator (S1-S10) | Done |
 | M3 | Terraform infrastructure, real CloudWatch/EC2 adapters, test app, stress tool | Implemented; real run pending |
-| M4 | Log analysis and evaluation report | Not started |
+| M4 | Log analysis, evaluation report, live demo | Implemented on simulator evidence; real-run section pending |
 
 ## Requirements
 
@@ -51,6 +51,21 @@ cat sim-logs/S6-seed1/*.jsonl | head
 | `-scenario` | `all` | scenario ID (`S1`..`S10`) or `all` |
 | `-seed` | `1` | seed for the deterministic metrics generator |
 | `-out` | `sim-logs` | directory for the JSONL logs (one subdirectory per scenario) |
+| `-demo` | off | run the interactive live demo instead of the scenarios |
+| `-load`, `-initial`, `-cycles` | `0.8`, `2`, `0` | demo only: initial load (instance units), initial instances, cycle limit (`0` = until `quit`) |
+
+## Evaluation and live demo
+
+```bash
+make sim && make analyze                 # metrics per scenario plus a summary table
+go run ./cmd/analyze -json sim-logs      # the same metrics as JSON
+go run ./cmd/analyze evidence/           # works on the logs of a real run too
+make demo                                # live demo: demo profile, 10 s cycles
+```
+
+`cmd/analyze` reads any `.jsonl` files or directories, groups the records by `run_id` and computes the metrics of `docs/spec/simulator.md` §5 from the log alone. The metrics are SLO compliance, instance-minutes against the theoretical minimum, over/under-provisioning, capacity changes and oscillation, time-to-relief, late or incorrect decisions, and measured warmup. The results and their critical analysis are in [`docs/report/evaluation-report.md`](docs/report/evaluation-report.md).
+
+The demo runs the real control loop on simulated adapters in real time. It reads the load from standard input: type a number in instance units (`1.0` saturates one instance), `+`/`-`, a preset (`idle`, `comfortable`, `elevated`, `overload`, `peak`), `help` or `quit`. Each cycle prints one line with the load, CPU, capacity, decision, reason code and action, and the full decision log goes to `sim-logs/demo/`.
 
 ## Development
 
@@ -59,6 +74,7 @@ make test    # run the test suite
 make race    # run the tests with the race detector
 make lint    # run golangci-lint
 make fmt     # format the code
+make vet     # go vet
 make check   # fmt + vet + lint + race (what CI should run)
 make tf-check     # terraform fmt -check + validate (no AWS calls)
 make build-linux  # linux/amd64 testapp, controller and stress binaries in bin/
@@ -98,7 +114,8 @@ The controller is a hexagon: a pure decision core surrounded by an imperative sh
 - `internal/app` — the control loop: per-cycle time budget, one action per cycle, event logging, config hashing.
 - `internal/adapters` — real AWS adapters (`cloudwatch`, `asg`, with the shared SDK setup in `awsclient`) and simulated adapters (`fakeasg`, `mockmetrics`, `clock`, `filestate`, `memstate`, `jsonllog`). A test (`awsiam`) keeps `infra/iam/controller-policy.json` equal to the AWS operations the adapters can call.
 - `internal/config` + `cmd/controller` — the versioned configuration file, resolved on a profile, and the entrypoint that wires the adapters.
-- `internal/simulator` + `cmd/simulator` — the S1-S10 scenarios and the command that runs them.
+- `internal/simulator` + `cmd/simulator` — the S1-S10 scenarios, the command that runs them, and the interactive live demo.
+- `internal/evaluation` + `cmd/analyze` — reads decision logs back and computes the evaluation metrics, for simulator and real runs alike.
 - `cmd/testapp` and `cmd/stress` — the minimal application behind the ALB and the operator tool that triggers its CPU stress.
 
 The decision rules, thresholds, windows and failure handling are specified normatively in [`docs/spec/`](docs/spec/); the reasoning behind each choice is in [`docs/adr/`](docs/adr/).
@@ -107,7 +124,8 @@ The decision rules, thresholds, windows and failure handling are specified norma
 
 ```
 cmd/controller/        controller entrypoint (real or sim adapters, from the config file)
-cmd/simulator/         closed-loop simulator (scenarios S1-S10)
+cmd/simulator/         closed-loop simulator (scenarios S1-S10) and live demo (-demo)
+cmd/analyze/           evaluation metrics from JSONL decision logs
 cmd/testapp/           test application (/, /health, /admin/stress)
 cmd/stress/            operator tool that triggers /admin/stress
 internal/core/         pure decision function and domain types
@@ -116,6 +134,7 @@ internal/app/          control loop
 internal/config/       configuration file decoding and resolution
 internal/adapters/     real AWS and simulated adapters
 internal/simulator/    scenario definitions and runner
+internal/evaluation/   decision-log reader and evaluation metrics
 infra/                 Terraform root module; infra/iam/ holds the least-privilege policy
 scripts/               operator scripts (collect-evidence.sh)
 docs/                  design documentation (see below)
@@ -130,6 +149,7 @@ docs/                  design documentation (see below)
 - [`docs/adr/`](docs/adr/) — architecture decision records, one per decision, each with sources.
 - [`docs/plan/`](docs/plan/) — roadmap, backlog and the requirement-to-decision-to-implementation traceability matrix.
 - [`docs/verification.md`](docs/verification.md) — items to confirm empirically during the real-AWS run.
+- [`docs/report/evaluation-report.md`](docs/report/evaluation-report.md) — evaluation results and critical analysis (draft; real-run section pending).
 
 ## Running against real AWS
 

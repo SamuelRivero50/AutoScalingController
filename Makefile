@@ -3,7 +3,7 @@ GOBIN := $(shell $(GO) env GOPATH)/bin
 # Prefer golangci-lint on PATH, otherwise fall back to the one in GOPATH/bin.
 GOLANGCI_LINT ?= $(shell command -v golangci-lint 2>/dev/null || echo $(GOBIN)/golangci-lint)
 
-.PHONY: build build-linux test race lint fmt vet cover sim tidy check tools tf-check
+.PHONY: build build-linux test race lint fmt vet cover sim analyze demo tidy check tools tf-check
 
 ## build: compile all packages and commands
 build:
@@ -54,6 +54,14 @@ tf-check:
 ## sim: run all simulator scenarios
 sim:
 	$(GO) run ./cmd/simulator
+
+## analyze: compute the evaluation metrics from the simulator logs (run make sim first)
+analyze:
+	$(GO) run ./cmd/analyze sim-logs
+
+## demo: interactive live demo (demo profile); type help for the commands
+demo:
+	$(GO) run ./cmd/simulator -demo
 
 ## tidy: tidy the module graph
 tidy:

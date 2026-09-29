@@ -42,6 +42,8 @@ Each scenario is also an automated test with an explicit acceptance criterion.
 
 The live demo (REQ-DELIV-5) uses the simulator with the **demo profile** plus a CLI "load dial" the presenter (or professor) can operate interactively to manually trigger overload/comfortable conditions and observe the controller's logged decisions in near-real-time, without incurring any AWS cost or waiting through realistic timeouts.
 
+Implementation: `go run ./cmd/simulator -demo` (`make demo`). The load is read from standard input in instance units, as a number, `+`/`-` or a named preset. One line per cycle is printed, and the decision log is written to `sim-logs/demo/`.
+
 ## 5. Evaluation metrics computed from the JSONL log
 
 Using the Herbst et al. (2013) vocabulary and the Al-Dhuraibi et al. (2018) provisioning-state vocabulary:
@@ -53,6 +55,8 @@ Using the Herbst et al. (2013) vocabulary and the Al-Dhuraibi et al. (2018) prov
 - **Time-to-relief**: elapsed time from the first overload cycle to the first cycle where CPU returns below the scale-out trigger, decomposed into decision latency + reaction time — answers REQ-PRESENT-2.
 - **Count and examples of late/incorrect decisions**: cycles where the eventual outcome (e.g., persistent SLO breach despite capacity being at max, or `MAINTAIN_SLO_BREACH_LOW_CPU`) is flagged by `reason_code`, giving a concrete answer to REQ-PRESENT-6.
 - **Measured warmup**: the empirically measured launch → healthy duration, reported alongside the assumed value used to set timeouts.
+
+Implementation: `internal/evaluation` and `cmd/analyze` (`make analyze`) compute these metrics from the log alone. The log does not record the true load, so `load` is inferred as fleet CPU × in-service / 100. That estimate is slightly high (it includes the idle floor) and is only a lower bound on saturated cycles. The results are in `docs/report/evaluation-report.md`.
 
 ## 6. Sources
 

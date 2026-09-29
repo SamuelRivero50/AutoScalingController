@@ -107,7 +107,9 @@ loop every EvaluationInterval (or immediately in simulator time):
 /internal/adapters/jsonllog/
 /internal/adapters/clock/      system clock and FakeClock
 /internal/simulator/      scenario definitions S1-S10 and runner (keeps cmd/simulator thin)
-/cmd/simulator/           closed-loop simulator entrypoint (scenarios S1-S10)
+/cmd/simulator/           closed-loop simulator entrypoint (scenarios S1-S10) and the live demo (-demo, simulator.md §4)
+/internal/evaluation/     decision-log reader and evaluation metrics (simulator.md §5); reads logs only, never calls a port
+/cmd/analyze/             prints the evaluation metrics for any set of JSONL decision logs
 /cmd/testapp/             minimal Go test application (hello world + /health + stress endpoint)
 /cmd/stress/              operator tool that triggers /admin/stress on the instances (never part of the controller)
 /internal/config/         controller configuration file loading, resolved on top of a profile
