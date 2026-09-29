@@ -23,7 +23,8 @@ func TestRealisticAndDemoConfig(t *testing.T) {
 		{"demo deregistration", d.DeregistrationDelay, 10 * time.Second},
 		{"demo drain timeout", d.DrainTimeout, 40 * time.Second},
 		{"demo cycle budget", d.CycleBudget, 10 * time.Second},
-		{"call timeout", r.CallTimeout, 10 * time.Second},
+		{"attempt timeout", r.AttemptTimeout, 10 * time.Second},
+		{"retry max backoff", r.RetryMaxBackoff, 30 * time.Second},
 		{"breaker cool-off", r.Breaker.CoolOff, 10 * time.Minute},
 	}
 	for _, c := range checks {
@@ -93,5 +94,13 @@ func TestConfig_Hash(t *testing.T) {
 	timeout.PendingTimeout = 400 * time.Second
 	if timeout.Hash() == r.Hash() {
 		t.Fatal("a timeout change must change the hash")
+	}
+	retries := RealisticConfig()
+	retries.MaxRetries = 5
+	if retries.Hash() == r.Hash() {
+		t.Fatal("a retry policy change must change the hash")
+	}
+	if r.MaxRetries != 3 {
+		t.Fatalf("max retries = %d, want 3", r.MaxRetries)
 	}
 }

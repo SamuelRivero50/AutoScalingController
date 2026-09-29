@@ -73,6 +73,7 @@ func (c *Controller) State() ports.State {
 	st.Memory.Entries = slices.Clone(st.Memory.Entries)
 	st.SeenActivities = slices.Clone(st.SeenActivities)
 	st.LastInstances = slices.Clone(st.LastInstances)
+	st.Drains = slices.Clone(st.Drains)
 	return st
 }
 
@@ -134,7 +135,7 @@ func (c *Controller) rebuild(ctx context.Context, now time.Time, reason string, 
 	c.state = ports.State{NextCycle: 1, ActivityWatermark: now}
 	details := map[string]any{"reason": reason, "error": cause.Error()}
 
-	cctx, cancel := context.WithTimeout(ctx, c.cfg.CallTimeout)
+	cctx, cancel := context.WithTimeout(ctx, c.cfg.CycleBudget)
 	snap, err := c.deps.Provisioner.DescribeCapacity(cctx)
 	cancel()
 	if err != nil {

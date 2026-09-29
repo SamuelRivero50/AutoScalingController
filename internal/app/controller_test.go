@@ -189,6 +189,25 @@ func TestController_BudgetExhaustion(t *testing.T) {
 	}
 }
 
+// TestController_CallsBoundedOnlyByCycleBudget: the 10s timeout is per AWS
+// attempt and applied inside the real adapters, so the shell must give each
+// port call the whole remaining cycle budget (40s), not a 10s deadline that
+// would leave no room for retries.
+func TestController_CallsBoundedOnlyByCycleBudget(t *testing.T) {
+	m := &deadlineMetrics{}
+	r := newRig(t, withMetrics(m))
+	r.start(t)
+	r.cycles(t, 1)
+	if len(m.allowed) != 2 {
+		t.Fatalf("metric calls with a deadline = %d, want 2", len(m.allowed))
+	}
+	for _, allowed := range m.allowed {
+		if allowed <= r.cfg.AttemptTimeout || allowed > r.cfg.CycleBudget {
+			t.Fatalf("call deadline %v, want within (%v, %v]", allowed, r.cfg.AttemptTimeout, r.cfg.CycleBudget)
+		}
+	}
+}
+
 func TestController_BudgetExhaustionSkipsIntendedAction(t *testing.T) {
 	cfg := RealisticConfig()
 	cfg.CycleBudget = 50 * time.Millisecond

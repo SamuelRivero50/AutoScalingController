@@ -32,10 +32,6 @@ func (cy *cycle) budgetLeft(ctx context.Context) bool {
 	return !cy.exhausted
 }
 
-func (cy *cycle) call(ctx context.Context) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(ctx, cy.c.cfg.CallTimeout)
-}
-
 // fetchFailed records a FETCH_FAILURE event, noting when the failure came
 // from the exhausted budget.
 func (cy *cycle) fetchFailed(ctx context.Context, source string, err error) {
@@ -57,9 +53,11 @@ func (c *Controller) Cycle(ctx context.Context) error {
 	policy := c.cfg.Policy
 
 	// Observe: capacity ground truth, provisioning outcomes, metrics.
-	snap := cy.describeCapacity(budget)
+	raw := cy.describeCapacity(budget)
+	drains := applyDrainTimeout(c.state.Drains, raw, cy.now, c.cfg.DrainTimeout)
+	snap := drains.effective
 	failed := cy.readActivities(budget)
-	recovered := c.becameInService(snap)
+	recovered := c.becameInService(raw)
 	obs := cy.observe(budget, snap)
 	if !cy.budgetLeft(budget) {
 		cy.event(ports.EventFetchFailure, map[string]any{"source": "cycle_budget", "error": "cycle budget exhausted", "budget_exhausted": true})
@@ -96,7 +94,8 @@ func (c *Controller) Cycle(ctx context.Context) error {
 			"consecutive_failures": br.ConsecutiveFailures,
 		})
 	}
-	cy.instanceChanges(snap)
+	cy.instanceChanges(raw)
+	cy.drainExpirations(raw, drains.expired)
 	for _, a := range decision.Alerts {
 		switch a {
 		case core.AlertBlind:
@@ -110,11 +109,12 @@ func (c *Controller) Cycle(ctx context.Context) error {
 	c.state.Memory = mem
 	c.state.Breaker = br
 	c.state.NextCycle = cy.id + 1
-	if snap.Known {
-		c.state.LastInstances = slices.Clone(snap.Instances)
+	c.state.Drains = drains.drains
+	if raw.Known {
+		c.state.LastInstances = slices.Clone(raw.Instances)
 	}
 	persist := context.WithoutCancel(ctx)
-	sctx, scancel := context.WithTimeout(persist, c.cfg.CallTimeout)
+	sctx, scancel := context.WithTimeout(persist, c.cfg.CycleBudget)
 	if err := c.deps.State.Save(sctx, c.State()); err != nil {
 		c.logger.WarnContext(ctx, "state save failed; memory kept in process", "cycle", cy.id, "err", err)
 	}
@@ -154,9 +154,7 @@ func (cy *cycle) describeCapacity(ctx context.Context) core.CapacitySnapshot {
 	if !cy.budgetLeft(ctx) {
 		return core.CapacitySnapshot{}
 	}
-	cctx, cancel := cy.call(ctx)
-	defer cancel()
-	snap, err := cy.c.deps.Provisioner.DescribeCapacity(cctx)
+	snap, err := cy.c.deps.Provisioner.DescribeCapacity(ctx)
 	if err != nil {
 		cy.fetchFailed(ctx, "capacity", err)
 		return core.CapacitySnapshot{}
@@ -176,9 +174,7 @@ func (cy *cycle) readActivities(ctx context.Context) bool {
 	if floor := cy.now.Add(-cy.c.cfg.ActivityLookback); floor.After(since) {
 		since = floor
 	}
-	cctx, cancel := cy.call(ctx)
-	defer cancel()
-	acts, err := cy.c.deps.Provisioner.ScalingActivities(cctx, since)
+	acts, err := cy.c.deps.Provisioner.ScalingActivities(ctx, since)
 	if err != nil {
 		cy.fetchFailed(ctx, "scaling_activities", err)
 		return false
@@ -239,9 +235,7 @@ func (cy *cycle) observe(ctx context.Context, snap core.CapacitySnapshot) core.O
 		}
 	}
 	if cy.budgetLeft(ctx) {
-		cctx, cancel := cy.call(ctx)
-		cpu, err := cy.c.deps.Metrics.InstanceCPU(cctx, period, ids)
-		cancel()
+		cpu, err := cy.c.deps.Metrics.InstanceCPU(ctx, period, ids)
 		if err != nil {
 			cy.fetchFailed(ctx, "cpu", err)
 			failedCPU()
@@ -255,9 +249,7 @@ func (cy *cycle) observe(ctx context.Context, snap core.CapacitySnapshot) core.O
 	lb := ports.LoadBalancerReadings{}
 	fetched := false
 	if cy.budgetLeft(ctx) {
-		cctx, cancel := cy.call(ctx)
-		r, err := cy.c.deps.Metrics.LoadBalancer(cctx, period)
-		cancel()
+		r, err := cy.c.deps.Metrics.LoadBalancer(ctx, period)
 		if err != nil {
 			cy.fetchFailed(ctx, "load_balancer", err)
 		} else {
@@ -309,5 +301,25 @@ func (cy *cycle) instanceChanges(snap core.CapacitySnapshot) {
 				"instance_id": in.ID, "az": in.AZ, "from": string(in.State), "to": string(core.InstanceTerminated),
 			})
 		}
+	}
+}
+
+// drainExpirations emits one INSTANCE_STATE_CHANGE per drain that timed out
+// this cycle. The instance stays DRAINING in the ASG, but no longer blocks
+// scale-in (docs/spec/lifecycle-and-failures.md §4).
+func (cy *cycle) drainExpirations(snap core.CapacitySnapshot, expired []ports.Drain) {
+	az := make(map[string]string, len(snap.Instances))
+	for _, in := range snap.Instances {
+		az[in.ID] = in.AZ
+	}
+	for _, d := range expired {
+		cy.event(ports.EventInstanceStateChange, map[string]any{
+			"instance_id":           d.InstanceID,
+			"az":                    az[d.InstanceID],
+			"from":                  string(core.InstanceDraining),
+			"to":                    string(core.InstanceDraining),
+			"drain_timeout_expired": true,
+			"draining_since":        d.Since.UTC().Format(time.RFC3339Nano),
+		})
 	}
 }

@@ -25,9 +25,16 @@ type Config struct {
 	// timeout is enforced with the real adapters, Milestone 3).
 	DeregistrationDelay time.Duration
 	DrainTimeout        time.Duration
-	// CallTimeout bounds every port call; CycleBudget bounds a whole cycle.
-	CallTimeout time.Duration
+	// CycleBudget bounds a whole cycle; every port call is bounded only by
+	// the remaining budget (docs/spec/lifecycle-and-failures.md §3).
 	CycleBudget time.Duration
+	// AWS request retry policy, applied by the real AWS adapters: each
+	// attempt times out after AttemptTimeout, and up to MaxRetries retries
+	// follow with exponential backoff 1s, 2s, 4s ... capped at
+	// RetryMaxBackoff.
+	AttemptTimeout  time.Duration
+	MaxRetries      int
+	RetryMaxBackoff time.Duration
 	// ActivityLookback bounds how far back scaling activities are read.
 	ActivityLookback time.Duration
 }
@@ -41,8 +48,10 @@ func RealisticConfig() Config {
 		PendingTimeout:      360 * time.Second,
 		DeregistrationDelay: 60 * time.Second,
 		DrainTimeout:        90 * time.Second,
-		CallTimeout:         10 * time.Second,
 		CycleBudget:         40 * time.Second,
+		AttemptTimeout:      10 * time.Second,
+		MaxRetries:          3,
+		RetryMaxBackoff:     30 * time.Second,
 		ActivityLookback:    30 * time.Minute,
 	}
 }
@@ -56,8 +65,10 @@ func DemoConfig() Config {
 		PendingTimeout:      45 * time.Second,
 		DeregistrationDelay: 10 * time.Second,
 		DrainTimeout:        40 * time.Second,
-		CallTimeout:         10 * time.Second,
 		CycleBudget:         10 * time.Second,
+		AttemptTimeout:      10 * time.Second,
+		MaxRetries:          3,
+		RetryMaxBackoff:     30 * time.Second,
 		ActivityLookback:    30 * time.Minute,
 	}
 }
@@ -86,7 +97,9 @@ func (c Config) Validate() error {
 	check(c.Breaker.CoolOff > 0, "breaker cool-off must be positive")
 	check(c.Warmup > 0, "warmup must be positive")
 	check(c.PendingTimeout > c.Warmup, "pending timeout must exceed warmup")
-	check(c.CallTimeout > 0, "call timeout must be positive")
+	check(c.AttemptTimeout > 0, "attempt timeout must be positive")
+	check(c.MaxRetries >= 0, "max retries must not be negative")
+	check(c.RetryMaxBackoff > 0, "retry max backoff must be positive")
 	check(c.CycleBudget > 0 && c.CycleBudget <= c.Policy.EvaluationInterval, "cycle budget must be positive and fit in the evaluation interval")
 	check(c.ActivityLookback > 0, "activity lookback must be positive")
 	return errors.Join(errs...)
@@ -122,8 +135,10 @@ type hashDTO struct {
 	PendingTimeoutMS     int64        `json:"pending_timeout_ms"`
 	DeregistrationMS     int64        `json:"deregistration_delay_ms"`
 	DrainTimeoutMS       int64        `json:"drain_timeout_ms"`
-	CallTimeoutMS        int64        `json:"call_timeout_ms"`
 	CycleBudgetMS        int64        `json:"cycle_budget_ms"`
+	AttemptTimeoutMS     int64        `json:"attempt_timeout_ms"`
+	MaxRetries           int          `json:"max_retries"`
+	RetryMaxBackoffMS    int64        `json:"retry_max_backoff_ms"`
 	ActivityLookbackMS   int64        `json:"activity_lookback_ms"`
 }
 
@@ -160,8 +175,10 @@ func (c Config) Hash() string {
 		PendingTimeoutMS:     c.PendingTimeout.Milliseconds(),
 		DeregistrationMS:     c.DeregistrationDelay.Milliseconds(),
 		DrainTimeoutMS:       c.DrainTimeout.Milliseconds(),
-		CallTimeoutMS:        c.CallTimeout.Milliseconds(),
 		CycleBudgetMS:        c.CycleBudget.Milliseconds(),
+		AttemptTimeoutMS:     c.AttemptTimeout.Milliseconds(),
+		MaxRetries:           c.MaxRetries,
+		RetryMaxBackoffMS:    c.RetryMaxBackoff.Milliseconds(),
 		ActivityLookbackMS:   c.ActivityLookback.Milliseconds(),
 	}
 	data, err := json.Marshal(d)

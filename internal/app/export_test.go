@@ -86,6 +86,26 @@ type rigSetup struct {
 	desired int
 	load    float64
 	metrics ports.MetricsSource
+	wrap    func(*fakeasg.ASG) ports.InstanceProvisioner
+}
+
+// withProvisioner wraps the simulated ASG seen by the controller.
+func withProvisioner(wrap func(*fakeasg.ASG) ports.InstanceProvisioner) rigOption {
+	return func(s *rigSetup) { s.wrap = wrap }
+}
+
+// hungDrain reports one extra instance that stays DRAINING forever.
+type hungDrain struct {
+	*fakeasg.ASG
+}
+
+func (h hungDrain) DescribeCapacity(ctx context.Context) (core.CapacitySnapshot, error) {
+	snap, err := h.ASG.DescribeCapacity(ctx)
+	if err != nil {
+		return snap, err
+	}
+	snap.Instances = append(snap.Instances, core.Instance{ID: "i-hung", AZ: "az-a", State: core.InstanceDraining, LaunchedAt: t0.Add(-time.Hour)})
+	return snap, nil
 }
 
 func withLoad(l float64) rigOption  { return func(s *rigSetup) { s.load = l } }
@@ -112,8 +132,12 @@ func newRig(t *testing.T, opts ...rigOption) *rig {
 		metrics = mockmetrics.New(1, t0, mockmetrics.Profile{Load: func(time.Duration) float64 { return load }}, asg)
 	}
 	r := &rig{clock: c, asg: asg, store: &memstate.Store{}, log: &recorder{}, cfg: s.cfg}
+	var prov ports.InstanceProvisioner = asg
+	if s.wrap != nil {
+		prov = s.wrap(asg)
+	}
 	ctrl, err := New(s.cfg, core.ModeSim, "run-test", Deps{
-		Metrics: metrics, Provisioner: asg, State: r.store, Log: r.log, Clock: c,
+		Metrics: metrics, Provisioner: prov, State: r.store, Log: r.log, Clock: c,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -138,6 +162,34 @@ func (r *rig) cycles(t *testing.T, n int) {
 		}
 		r.clock.Advance(r.cfg.Policy.EvaluationInterval)
 	}
+}
+
+// deadlineMetrics records how much time each call's context allows.
+type deadlineMetrics struct {
+	mu      sync.Mutex
+	allowed []time.Duration
+}
+
+func (d *deadlineMetrics) record(ctx context.Context) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if dl, ok := ctx.Deadline(); ok {
+		d.allowed = append(d.allowed, time.Until(dl))
+	}
+}
+
+func (d *deadlineMetrics) InstanceCPU(ctx context.Context, _ ports.Period, ids []string) ([]core.InstanceCPU, error) {
+	d.record(ctx)
+	out := make([]core.InstanceCPU, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, core.InstanceCPU{InstanceID: id})
+	}
+	return out, nil
+}
+
+func (d *deadlineMetrics) LoadBalancer(ctx context.Context, _ ports.Period) (ports.LoadBalancerReadings, error) {
+	d.record(ctx)
+	return ports.LoadBalancerReadings{}, nil
 }
 
 // blockingMetrics blocks every call until its context is done.
