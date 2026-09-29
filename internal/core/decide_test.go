@@ -259,9 +259,10 @@ func TestDecideIsDeterministicAndDoesNotMutateInput(t *testing.T) {
 	h := newHarness(cfg)
 	c := fleet(3, InstanceDraining)
 	h.load(c, hot)
-	obs := observe(h.now.Add(cfg.EvaluationInterval), cfg, c, hot)
+	now99 := h.now.Add(cfg.EvaluationInterval)
+	obs := observe(now99, cfg, c, hot)
 	sig := Classify(obs, c, h.mem.LastConsumedCPU, cfg)
-	mem := Advance(h.mem, 99, sig, c, cfg)
+	mem := Advance(h.mem, 99, now99, sig, c, cfg)
 	in := PolicyInput{CycleID: 99, Config: cfg, Signals: sig, Capacity: c, Memory: mem}
 
 	memBefore := slices.Clone(mem.Entries)
@@ -276,7 +277,7 @@ func TestDecideIsDeterministicAndDoesNotMutateInput(t *testing.T) {
 	}
 
 	prevEntries := slices.Clone(h.mem.Entries)
-	_ = Advance(h.mem, 100, sig, c, cfg)
+	_ = Advance(h.mem, 100, now99, sig, c, cfg)
 	if !slices.Equal(h.mem.Entries, prevEntries) {
 		t.Fatal("Advance mutated its input memory")
 	}

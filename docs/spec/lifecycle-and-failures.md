@@ -20,7 +20,7 @@ Every observed signal is classified per cycle before it is used by the decision 
 - 5xx error-count metrics absent while `RequestCount` is present = zero errors for that period (ALB only publishes 5xx counters when the count is nonzero) — quality `VALID` with value 0.
 - `CPUUtilization` absent for an in-service instance is a real gap: if fewer than 50% of in-service instances report a CPU value, the **aggregate** CPU signal becomes `MISSING`.
 
-Only closed (already elapsed) metric periods are used; `metric_lag` (60s realistic, 0s demo) accounts for CloudWatch's own ingestion delay so the controller never reads a partial, still-filling period.
+Only closed (already elapsed) metric periods are used; `metric_lag` (60s realistic, 0s demo) accounts for CloudWatch's own ingestion delay so the controller never reads a partial, still-filling period. Additionally, after a scale-out completes, the first CPU datapoint whose `period_start` precedes the moment the new instances joined the fleet is discarded (stale-period guard, `docs/spec/decision-policy.md` §3). The mockmetrics adapter in the simulator computes CPU using the in-service count that was active at the end of the aggregation period, matching this real-AWS behavior.
 
 ## 2. Safety rules under missing data
 

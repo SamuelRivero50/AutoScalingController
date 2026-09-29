@@ -8,6 +8,6 @@
 // One control-loop cycle uses the core in three steps:
 //
 //	signals := core.Classify(obs, capacity, mem.LastConsumedCPU, cfg)
-//	mem = core.Advance(mem, cycleID, signals, capacity, cfg)
+//	mem = core.Advance(mem, cycleID, now, signals, capacity, cfg)
 //	decision := core.Decide(core.PolicyInput{...Memory: mem...})
 package core

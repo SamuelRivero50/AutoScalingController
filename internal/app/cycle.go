@@ -65,7 +65,7 @@ func (c *Controller) Cycle(ctx context.Context) error {
 
 	// Analyze and decide (pure core).
 	sig := core.Classify(obs, snap, c.state.Memory.LastConsumedCPU, policy)
-	mem := core.Advance(c.state.Memory, cy.id, sig, snap, policy)
+	mem := core.Advance(c.state.Memory, cy.id, cy.now, sig, snap, policy)
 	prevBreaker := c.state.Breaker
 	br := prevBreaker.Step(core.BreakerInput{Now: cy.now, Failed: failed, Recovered: recovered}, c.cfg.Breaker)
 	decision := core.Decide(core.PolicyInput{

@@ -39,7 +39,7 @@ func sampleCycle(ts time.Time, cycleID int64) ports.CycleRecord {
 		RequestCount: core.Reading{Present: true, Value: 400, Timestamp: dp},
 	}
 	sig := core.Classify(obs, capacity, time.Time{}, cfg)
-	mem := core.Advance(core.Memory{}, cycleID, sig, capacity, cfg)
+	mem := core.Advance(core.Memory{}, cycleID, ts, sig, capacity, cfg)
 	d := core.Decide(core.PolicyInput{CycleID: cycleID, Config: cfg, Signals: sig, Capacity: capacity, Memory: mem})
 	return ports.CycleRecord{
 		Run: run, CycleID: cycleID, TS: ts, Signals: sig,

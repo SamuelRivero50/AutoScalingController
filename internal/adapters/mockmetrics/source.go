@@ -33,6 +33,12 @@ var ErrOutage = errors.New("mockmetrics: simulated metrics outage")
 // Fleet reports the current in-service instance count.
 type Fleet interface {
 	InServiceCount() int
+	// InServiceCountAt returns the number of instances that were in service
+	// at some point during [start, end]. It is used to compute CPU and
+	// latency for a closed aggregation period, ensuring that a period
+	// observed before new capacity arrived does not benefit from it.
+	// Implementations that do not track history may return InServiceCount().
+	InServiceCountAt(start, end time.Time) int
 }
 
 // Profile describes one scenario's load over time. Every function receives
@@ -94,7 +100,8 @@ func (s *Source) load(p ports.Period) float64 {
 	return max(0, s.profile.Load(s.elapsed(p)))
 }
 
-// meanCPU is the noise-free per-instance CPU for n in-service instances.
+// meanCPU is the noise-free per-instance CPU for the period, using the
+// number of instances in service during that period (not the current count).
 func (s *Source) meanCPU(p ports.Period, n int) float64 {
 	if n <= 0 {
 		return 100
@@ -110,7 +117,9 @@ func (s *Source) InstanceCPU(ctx context.Context, p ports.Period, instanceIDs []
 	if s.outage(p) {
 		return nil, ErrOutage
 	}
-	mean := s.meanCPU(p, len(instanceIDs))
+	// Use the in-service count during this period, not the current count.
+	n := s.fleet.InServiceCountAt(p.Start, p.End)
+	mean := s.meanCPU(p, n)
 	out := make([]core.InstanceCPU, 0, len(instanceIDs))
 	for _, id := range instanceIDs {
 		v := mean + s.noise(id, p)*s.profile.NoiseStdDev
@@ -130,7 +139,10 @@ func (s *Source) LoadBalancer(ctx context.Context, p ports.Period) (ports.LoadBa
 	if s.outage(p) {
 		return ports.LoadBalancerReadings{}, ErrOutage
 	}
+	// Current healthy count for the HealthyHostCount gauge.
 	n := s.fleet.InServiceCount()
+	// Period-based count for CPU-driven latency.
+	np := s.fleet.InServiceCountAt(p.Start, p.End)
 	at := func(v float64) core.Reading { return core.Reading{Present: true, Value: v, Timestamp: p.Start} }
 	r := ports.LoadBalancerReadings{HealthyHostCount: at(float64(n))}
 
@@ -144,7 +156,7 @@ func (s *Source) LoadBalancer(ctx context.Context, p ports.Period) (ports.LoadBa
 	}
 	r.RequestCount = at(requests)
 	r.RequestCountPerTarget = at(requests / float64(max(1, n)))
-	r.TargetResponseTimeP95 = at(latencyMs(s.meanCPU(p, n)) + s.overlay(elapsed))
+	r.TargetResponseTimeP95 = at(latencyMs(s.meanCPU(p, np)) + s.overlay(elapsed))
 
 	if s.profile.ErrorRates != nil {
 		target, elb := s.profile.ErrorRates(elapsed)

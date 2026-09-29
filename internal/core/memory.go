@@ -21,9 +21,15 @@ type WindowEntry struct {
 type Memory struct {
 	Entries []WindowEntry // oldest first, at most max(ScaleOutN, ScaleInN)
 
-	HasLastCapacity bool
-	LastDesired     int
-	LastInService   int
+	HasLastCapacity      bool
+	LastDesired          int
+	LastInService        int
+	HadScaleOutInFlight  bool // true if the previous cycle had pending instances
+
+	// LastCapacityChangedAt records the cycle time of the most recent
+	// in_service increase. Used with HadScaleOutInFlight for the
+	// stale-period guard (docs/spec/decision-policy.md §3).
+	LastCapacityChangedAt time.Time
 
 	LastConsumedCPU time.Time
 	BlindStreak     int
@@ -33,10 +39,12 @@ type Memory struct {
 // mutates prev.
 //
 //   - Any change of (desired, in-service) since the previous cycle resets both
-//     windows.
+//     windows and records the cycle time as LastCapacityChangedAt.
 //   - The cycle is counted only if capacity is known, no scale-out is in
-//     flight and CPU is not NO_NEW_DATA.
-func Advance(prev Memory, cycleID int64, sig Signals, capacity CapacitySnapshot, cfg PolicyConfig) Memory {
+//     flight, CPU is not NO_NEW_DATA, and the CPU datapoint's period_start is
+//     not before LastCapacityChangedAt (stale-period rule,
+//     docs/spec/decision-policy.md §3).
+func Advance(prev Memory, cycleID int64, now time.Time, sig Signals, capacity CapacitySnapshot, cfg PolicyConfig) Memory {
 	next := prev
 	next.Entries = slices.Clone(prev.Entries)
 
@@ -53,14 +61,34 @@ func Advance(prev Memory, cycleID int64, sig Signals, capacity CapacitySnapshot,
 	inService := capacity.InService()
 	if prev.HasLastCapacity && (prev.LastDesired != capacity.Desired || prev.LastInService != inService) {
 		next.Entries = nil
+		if inService > prev.LastInService {
+			next.LastCapacityChangedAt = now
+		}
 	}
 	next.HasLastCapacity = true
 	next.LastDesired = capacity.Desired
 	next.LastInService = inService
 
-	if capacity.ScaleOutInFlight() || sig.CPU.Quality == QualityNoNewData {
+	inFlight := capacity.ScaleOutInFlight()
+	if inFlight || sig.CPU.Quality == QualityNoNewData {
+		next.HadScaleOutInFlight = true
 		return next
 	}
+
+	// Stale-period guard: the cycle right after scale-out in flight completes
+	// (HadScaleOutInFlight=true, now ScaleOutInFlight=false) may carry a CPU
+	// datapoint whose period_start precedes the new instances' arrival time.
+	// That reading used the smaller fleet's CPU and must not count.
+	// Keep discarding until we see a non-stale datapoint.
+	if prev.HadScaleOutInFlight &&
+		!next.LastCapacityChangedAt.IsZero() &&
+		sig.CPU.PeriodStart.Before(next.LastCapacityChangedAt) {
+		next.HadScaleOutInFlight = true // still stale; keep guard armed
+		return next
+	}
+	next.HadScaleOutInFlight = false
+	// Clear the timestamp once we've accepted a fresh post-scaleout datapoint.
+	next.LastCapacityChangedAt = time.Time{}
 
 	a := Assess(sig, capacity, cfg)
 	next.Entries = append(next.Entries, WindowEntry{

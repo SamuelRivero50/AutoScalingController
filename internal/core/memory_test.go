@@ -228,3 +228,78 @@ func TestMemoryIsBounded(t *testing.T) {
 		t.Fatalf("entries = %d, want %d", n, cfg.windowCapacity())
 	}
 }
+
+func TestStalePeriodGuardDropsFirstPostScaleOutCycle(t *testing.T) {
+	// After scale-out completes (ScaleOutInFlight just became false), the
+	// first CPU datapoint whose period_start precedes the scale-out must
+	// be discarded. Subsequent datapoints should accumulate normally.
+	cfg := RealisticConfig()
+	h := newHarness(cfg)
+
+	// Simulate two overloaded cycles that drive a scale-out decision.
+	requireReason(t, h.load(fleet(2), hot), ReasonMaintainWindowPending)
+	requireReason(t, h.load(fleet(2), hot), ReasonIncreaseCPUHigh)
+
+	// Scale-out in-flight: desired raised, new instance pending.
+	// Window resets and pending cycles are not counted.
+	for range 2 {
+		requireReason(t, h.load(fleet(2, InstancePending), hot), ReasonMaintainPendingCapacity)
+	}
+	if len(h.mem.Entries) != 0 {
+		t.Fatalf("pending cycles counted: %d entries, want 0", len(h.mem.Entries))
+	}
+
+	// New instance arrives; ScaleOutInFlight → false.
+	// The harness constructs the observation with PeriodStart = h.now -
+	// AggregationPeriod - MetricLag = h.now - 120s. Because LastCapacityChangedAt
+	// was set at the cycle when in_service grew (from 2 to 3), and the
+	// PeriodStart is before that moment, this cycle must be discarded.
+	c1 := fleet(3) // all in service, no pending
+	d1 := h.load(c1, hot)
+	if d1.Decision == IncreaseCapacity {
+		t.Fatal("stale-period cycle must not trigger another scale-out")
+	}
+	if len(h.mem.Entries) != 0 {
+		t.Fatalf("stale cycle counted: entries = %d, want 0", len(h.mem.Entries))
+	}
+
+	// The NEXT cycle has a fresh datapoint (period_start >= scale-out time).
+	// It should count normally even if CPU is still elevated.
+	h.load(c1, warm)
+	if len(h.mem.Entries) != 1 {
+		t.Fatalf("fresh post-scale-out cycle not counted: entries = %d, want 1", len(h.mem.Entries))
+	}
+}
+
+func TestStalePeriodGuardDoesNotFireOnScaleIn(t *testing.T) {
+	// The guard must NOT activate when in_service decreases (scale-in direction).
+	// Only scale-outs (in_service increasing) can produce stale CPU readings.
+	cfg := RealisticConfig()
+	h := newHarness(cfg)
+
+	// Fill two cycles at fleet(4); no scale-out ever happened.
+	c4 := fleet(4)
+	h.load(c4, cool)
+	h.load(c4, cool)
+
+	// Now in_service drops to 3 (simulating a completed scale-in).
+	// The window resets (in_service change), then the first post-change cycle
+	// should be counted normally — the guard must not block it.
+	c3 := fleet(3)
+	h.load(c3, cool) // resets window; adds 1 entry
+	if len(h.mem.Entries) != 1 {
+		t.Fatalf("first post-scale-in cycle: entries = %d, want 1 (reset then counted)", len(h.mem.Entries))
+	}
+
+	// Second cycle at same in_service: should also count normally.
+	h.load(c3, cool)
+	if len(h.mem.Entries) != 2 {
+		t.Fatalf("guard fired on second post-scale-in cycle: entries = %d, want 2", len(h.mem.Entries))
+	}
+
+	// Third and further cycles with hot load: must accumulate in the window.
+	h.load(c3, hot)
+	if len(h.mem.Entries) != 3 {
+		t.Fatalf("hot post-scale-in cycle not counted: entries = %d, want 3", len(h.mem.Entries))
+	}
+}

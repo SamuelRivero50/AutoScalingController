@@ -14,7 +14,8 @@ var t0 = time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
 
 type fixedFleet int
 
-func (f fixedFleet) InServiceCount() int { return int(f) }
+func (f fixedFleet) InServiceCount() int                         { return int(f) }
+func (f fixedFleet) InServiceCountAt(_, _ time.Time) int        { return int(f) }
 
 func constant(v float64) func(time.Duration) float64 {
 	return func(time.Duration) float64 { return v }

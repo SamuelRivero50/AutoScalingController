@@ -257,3 +257,58 @@ func TestASG_InServiceCount(t *testing.T) {
 		t.Fatalf("in service = %d, want 3 after warmup", n)
 	}
 }
+
+func TestASG_InServiceCountAt(t *testing.T) {
+	t.Parallel()
+	a, c := newGroup(2)
+
+	// Before any API calls: InServiceCountAt always returns 2.
+	if n := a.InServiceCountAt(t0, t0.Add(time.Minute)); n != 2 {
+		t.Fatalf("initial InServiceCountAt = %d, want 2", n)
+	}
+
+	// Scale out to 4 (warmup=3min). At t0+1min still 2 in service.
+	if _, err := a.SetDesiredCapacity(t.Context(), 4); err != nil {
+		t.Fatal(err)
+	}
+	c.Advance(time.Minute) // t0+1min: new instances still PENDING
+	describe(t, a)          // trigger reconcile
+
+	// Period [t0, t0+30s]: only 2 instances were in service.
+	if n := a.InServiceCountAt(t0, t0.Add(30*time.Second)); n != 2 {
+		t.Fatalf("InServiceCountAt before scale-out = %d, want 2", n)
+	}
+
+	// Warmup completes at t0+3min.
+	c.Advance(2 * time.Minute) // now t0+3min
+	describe(t, a)
+
+	// Period [t0+3min, t0+4min]: 4 instances are in service.
+	start := t0.Add(3 * time.Minute)
+	if n := a.InServiceCountAt(start, start.Add(time.Minute)); n != 4 {
+		t.Fatalf("InServiceCountAt after warmup = %d, want 4", n)
+	}
+
+	// Period that straddles the scale-out [t0+2min, t0+4min]: last known
+	// count at end of that interval is 4.
+	if n := a.InServiceCountAt(t0.Add(2*time.Minute), t0.Add(4*time.Minute)); n != 4 {
+		t.Fatalf("InServiceCountAt straddling scale-out = %d, want 4 (latest count)", n)
+	}
+
+	// Scale in: 4→3 (draining takes 1min).
+	if _, err := a.SetDesiredCapacity(t.Context(), 3); err != nil {
+		t.Fatal(err)
+	}
+	c.Advance(time.Minute) // t0+4min: draining instance removed
+	describe(t, a)
+
+	// Period [t0+4min, t0+5min]: 3 instances in service.
+	if n := a.InServiceCountAt(t0.Add(4*time.Minute), t0.Add(5*time.Minute)); n != 3 {
+		t.Fatalf("InServiceCountAt after scale-in = %d, want 3", n)
+	}
+
+	// Future period: returns latest known count.
+	if n := a.InServiceCountAt(t0.Add(time.Hour), t0.Add(2*time.Hour)); n != 3 {
+		t.Fatalf("InServiceCountAt far future = %d, want 3 (latest)", n)
+	}
+}

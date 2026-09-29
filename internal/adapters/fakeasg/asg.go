@@ -59,6 +59,12 @@ type instance struct {
 	stuck      bool
 }
 
+// capacityEvent records a change in the number of in-service instances.
+type capacityEvent struct {
+	at      time.Time
+	inService int
+}
+
 // ASG is the fake group. It is safe for concurrent use.
 type ASG struct {
 	clock ports.Clock
@@ -68,6 +74,7 @@ type ASG struct {
 	desired       int
 	instances     []*instance
 	activities    []ports.ScalingActivity
+	capacityHistory []capacityEvent // append-only: in_service count snapshots
 	nextInstance  int
 	nextActivity  int
 	nextRequest   int
@@ -90,6 +97,9 @@ func New(clock ports.Clock, cfg Config) *ASG {
 		in := a.newInstance(now)
 		in.phase = phaseInService
 		in.readyAt = now
+	}
+	if cfg.InitialDesired > 0 {
+		a.capacityHistory = append(a.capacityHistory, capacityEvent{at: now, inService: cfg.InitialDesired})
 	}
 	return a
 }
@@ -129,6 +139,38 @@ func (a *ASG) InServiceCount() int {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.reconcile(a.clock.Now())
+	n := 0
+	for _, in := range a.instances {
+		if in.phase == phaseInService {
+			n++
+		}
+	}
+	return n
+}
+
+// InServiceCountAt returns the number of instances that were in service at
+// the END of [start, end], or the last recorded count before start if no
+// change happened in that interval. This gives the highest in-service count
+// the fleet reached before the period closed, so CPU estimates are computed
+// with the largest available fleet rather than a transitional smaller one.
+func (a *ASG) InServiceCountAt(start, end time.Time) int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if len(a.capacityHistory) == 0 {
+		return a.countInService()
+	}
+	// Walk history and take the latest event at or before end.
+	last := a.capacityHistory[0].inService
+	for _, ev := range a.capacityHistory {
+		if ev.at.After(end) {
+			break
+		}
+		last = ev.inService
+	}
+	return last
+}
+
+func (a *ASG) countInService() int {
 	n := 0
 	for _, in := range a.instances {
 		if in.phase == phaseInService {
@@ -306,6 +348,13 @@ func (a *ASG) reconcile(now time.Time) {
 				break // the group retries after LaunchRetryInterval
 			}
 		}
+	}
+
+	// Record the in-service count after all state transitions so that
+	// InServiceCountAt has an accurate picture of the fleet at this moment.
+	newCount := a.countInService()
+	if len(a.capacityHistory) == 0 || a.capacityHistory[len(a.capacityHistory)-1].inService != newCount {
+		a.capacityHistory = append(a.capacityHistory, capacityEvent{at: now, inService: newCount})
 	}
 }
 

@@ -78,7 +78,7 @@ func newHarness(cfg PolicyConfig) *harness {
 func (h *harness) step(capacity CapacitySnapshot, obs Observation) Decision {
 	h.cycle++
 	sig := Classify(obs, capacity, h.mem.LastConsumedCPU, h.cfg)
-	h.mem = Advance(h.mem, h.cycle, sig, capacity, h.cfg)
+	h.mem = Advance(h.mem, h.cycle, h.now, sig, capacity, h.cfg)
 	return Decide(PolicyInput{
 		CycleID:  h.cycle,
 		Config:   h.cfg,
