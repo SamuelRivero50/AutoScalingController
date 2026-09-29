@@ -5,8 +5,11 @@
 // Usage:
 //
 //	simulator [-scenario all|S1..S10] [-seed N] [-out DIR]
+//	simulator -demo [-load L] [-initial N] [-cycles N] [-seed N] [-out DIR]
 //
-// It exits with status 1 if any scenario fails its criterion.
+// It exits with status 1 if any scenario fails its criterion. With -demo it
+// runs the interactive live demo instead (docs/spec/simulator.md §4): the
+// demo profile in real time, with the load set from standard input.
 package main
 
 import (
@@ -20,24 +23,45 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/SamuelRivero50/AutoScalingController/internal/adapters/clock"
 	"github.com/SamuelRivero50/AutoScalingController/internal/simulator"
 )
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	code := run(ctx, os.Args[1:], os.Stdout, os.Stderr)
+	code := run(ctx, os.Args[1:], os.Stdin, os.Stdout, os.Stderr)
 	stop()
 	os.Exit(code)
 }
 
-func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("simulator", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	which := fs.String("scenario", "all", "scenario ID (S1..S10) or all")
 	seed := fs.Uint64("seed", 1, "random seed for the metrics generator")
 	out := fs.String("out", "sim-logs", "directory for the JSONL decision logs (one subdirectory per scenario)")
+	demo := fs.Bool("demo", false, "run the interactive live demo (demo profile) instead of the scenarios")
+	load := fs.Float64("load", loadPresets["comfortable"], "demo: initial load in instance units (1.0 saturates one instance)")
+	initial := fs.Int("initial", 2, "demo: initial instance count")
+	cycles := fs.Int("cycles", 0, "demo: stop after this many cycles (0 runs until quit)")
 	if err := fs.Parse(args); err != nil {
 		return 2
+	}
+
+	if *demo {
+		if *load < 0 || *load > maxDialLoad || *initial < 1 || *cycles < 0 {
+			fmt.Fprintf(stderr, "invalid demo flags: load must be in [0, %g], initial >= 1, cycles >= 0\n", maxDialLoad)
+			return 2
+		}
+		opts := demoOptions{
+			Seed: *seed, Load: *load, Initial: *initial, Cycles: *cycles,
+			LogDir: filepath.Join(*out, "demo"), Clock: clock.System{},
+		}
+		if err := runDemo(ctx, opts, stdin, stdout); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		return 0
 	}
 
 	scenarios := simulator.Scenarios()
